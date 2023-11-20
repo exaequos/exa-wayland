@@ -70,6 +70,11 @@ struct wl_shm {
   struct wl_proxy proxy;
 };
 
+struct wl_output {
+
+  struct wl_proxy proxy;
+};
+
 struct wl_shm_pool {
 
   struct wl_proxy proxy;
@@ -244,6 +249,26 @@ struct args_uff {
   int32_t arg3;
 };
 
+struct args_iiiiissi {
+
+  int32_t arg1;
+  int32_t arg2;
+  int32_t arg3;
+  int32_t arg4;
+  int32_t arg5;
+  char * arg6;
+  char * arg7;
+  int32_t arg8;
+};
+
+struct args_uiii {
+
+  uint32_t arg1;
+  int32_t arg2;
+  int32_t arg3;
+  int32_t arg4;
+};
+
 void send_event(struct wl_proxy * proxy, const char * name, ...) {
 
   printf("send_event: %s\n", name);
@@ -359,6 +384,55 @@ void send_event(struct wl_proxy * proxy, const char * name, ...) {
 	args->arg1 = va_arg(ap, uint32_t);
 	args->arg2 = va_arg(ap, int32_t);
 	args->arg3 = va_arg(ap, int32_t);
+      }
+      else if (strcmp(interface->events[i].signature+offset, "iiiiissi") == 0) {
+
+	struct args_iiiiissi * args = (struct args_iiiiissi *)malloc(sizeof(struct args_iiiiissi));
+
+	display.event_queue[display.head].args = args;
+
+	args->arg1 = va_arg(ap, int32_t);
+	args->arg2 = va_arg(ap, int32_t);
+	args->arg3 = va_arg(ap, int32_t);
+	args->arg4 = va_arg(ap, int32_t);
+	args->arg5 = va_arg(ap, int32_t);
+
+	char * s1 = va_arg(ap, char *);
+
+	if (s1) {
+	  args->arg6 = malloc(strlen(s1)+1);
+	  strcpy(args->arg6, s1);
+
+	}
+	else {
+
+	  args->arg6 = NULL;
+	}
+
+	char * s2 = va_arg(ap, char *);
+
+	if (s2) {
+	  args->arg7 = malloc(strlen(s2)+1);
+	  strcpy(args->arg7, s2);
+
+	}
+	else {
+
+	  args->arg7 = NULL;
+	}
+
+	args->arg8 = va_arg(ap, int32_t);
+      }
+      else if (strcmp(interface->events[i].signature+offset, "uiii") == 0) {
+
+	struct args_uiii * args = (struct args_uiii *)malloc(sizeof(struct args_uiii));
+
+	display.event_queue[display.head].args = args;
+
+	args->arg1 = va_arg(ap, uint32_t);
+	args->arg2 = va_arg(ap, int32_t);
+	args->arg3 = va_arg(ap, int32_t);
+	args->arg4 = va_arg(ap, int32_t);
       }
       else if (interface->events[i].signature[offset] == 0) {
 
@@ -683,6 +757,30 @@ int wl_display_roundtrip(struct wl_display * display) {
 
 	  if (listener)
 	    (*listener)(display->event_queue[display->tail].proxy->data, display->event_queue[display->tail].proxy, args->arg1, args->arg2, args->arg3);
+	}
+	else if (strcmp(interface->events[i].signature+offset, "iiiiissi") == 0) {
+
+	  void (*listener)(void *, struct wl_proxy *, int32_t, int32_t, int32_t, int32_t, int32_t, char *, char *, int32_t) = display->event_queue[display->tail].proxy->listeners[i];
+
+	  struct args_iiiiissi * args = (struct args_iiiiissi * )display->event_queue[display->tail].args;
+
+	  if (listener)
+	    (*listener)(display->event_queue[display->tail].proxy->data, display->event_queue[display->tail].proxy, args->arg1, args->arg2, args->arg3, args->arg4, args->arg5, args->arg6, args->arg7, args->arg8);
+
+	  if (args->arg6)
+	    free(args->arg6);
+
+	  if (args->arg7)
+	    free(args->arg7);
+	}
+	else if (strcmp(interface->events[i].signature+offset, "uiii") == 0) {
+
+	  void (*listener)(void *, struct wl_proxy *, uint32_t, int32_t, int32_t, int32_t) = display->event_queue[display->tail].proxy->listeners[i];
+
+	  struct args_uiii * args = (struct args_uiii * )display->event_queue[display->tail].args;
+
+	  if (listener)
+	    (*listener)(display->event_queue[display->tail].proxy->data, display->event_queue[display->tail].proxy, args->arg1, args->arg2, args->arg3, args->arg4);
 	}
 	else if (interface->events[i].signature[offset] == 0) {
 
@@ -1180,6 +1278,25 @@ const struct wl_interface wl_touch_interface = {
 	7, wl_touch_events,
 };
 
+static const struct wl_message wl_output_requests[] = {
+	{ "release", "3", wayland_types + 0 },
+};
+
+static const struct wl_message wl_output_events[] = {
+	{ "geometry", "iiiiissi", wayland_types + 0 },
+	{ "mode", "uiii", wayland_types + 0 },
+	{ "done", "2", wayland_types + 0 },
+	{ "scale", "2i", wayland_types + 0 },
+	{ "name", "4s", wayland_types + 0 },
+	{ "description", "4s", wayland_types + 0 },
+};
+
+WL_EXPORT const struct wl_interface wl_output_interface = {
+	"wl_output", 4,
+	1, wl_output_requests,
+	6, wl_output_events,
+	};
+
 extern const struct wl_interface zwp_primary_selection_device_v1_interface;
 extern const struct wl_interface zwp_primary_selection_offer_v1_interface;
 extern const struct wl_interface zwp_primary_selection_source_v1_interface;
@@ -1314,6 +1431,16 @@ static struct wl_shm shm = {
   },
 };
 
+static struct wl_output output = {
+
+  .proxy = {
+
+    .version = 0,
+    .wl_display = &display,
+    .interface = &wl_output_interface,
+  },
+};
+
 static struct xdg_wm_base xdg_wm_base = {
 
   .proxy = {
@@ -1390,12 +1517,15 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
   if ( (strcmp(proxy->interface->name, "wl_display") == 0) &&
        (opcode == WL_DISPLAY_GET_REGISTRY) ) {
+
+    int i = 1;
     
-    send_event((struct wl_proxy *) &registry, "global", 1, "wl_compositor", 5);
-    send_event((struct wl_proxy *) &registry, "global", 2, "wl_shm", 1);
-    send_event((struct wl_proxy *) &registry, "global", 3, "xdg_wm_base", 4);
-    send_event((struct wl_proxy *) &registry, "global", 4, "wl_seat", 8);
-    send_event((struct wl_proxy *) &registry, "global", 5, "zxdg_decoration_manager_v1", 1);
+    send_event((struct wl_proxy *) &registry, "global", i++, "wl_compositor", 5);
+    send_event((struct wl_proxy *) &registry, "global", i++, "wl_shm", 1);
+    send_event((struct wl_proxy *) &registry, "global", i++, "wl_output", 3);
+    send_event((struct wl_proxy *) &registry, "global", i++, "xdg_wm_base", 4);
+    send_event((struct wl_proxy *) &registry, "global", i++, "wl_seat", 8);
+    send_event((struct wl_proxy *) &registry, "global", i++, "zxdg_decoration_manager_v1", 1);
     
     return (struct wl_proxy *)&registry;
   }
@@ -1412,6 +1542,10 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
     else if (strcmp(interface->name, "wl_shm") == 0) {
 
       return (struct wl_proxy *)&shm;
+    }
+    else if (strcmp(interface->name, "wl_output") == 0) {
+
+      return (struct wl_proxy *)&output;
     }
     else if (strcmp(interface->name, "xdg_wm_base") == 0) {
 
@@ -2146,13 +2280,57 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
 int wl_proxy_add_listener(struct wl_proxy * proxy,
 		      void (**implementation)(void), void *data) {
+
+  emscripten_log(EM_LOG_CONSOLE, "wl_proxy_add_listener: %p %p", proxy, proxy->interface->name);
   
   if (proxy && proxy->interface && proxy->interface->name) {
-    printf("wl_proxy_add_listener: %s\n", proxy->interface->name);
+    
+    emscripten_log(EM_LOG_CONSOLE, "wl_proxy_add_listener: %s", proxy->interface->name);
     
     if (strcmp(proxy->interface->name, "wl_shm") == 0) {
 
       send_event(proxy, "format", WL_SHM_FORMAT_ARGB8888);
+    }
+    else if (strcmp(proxy->interface->name, "wl_output") == 0) {
+
+      int32_t physical_width, physical_height, width, height;
+
+      EM_ASM({
+
+	  const pw = Math.floor((25.4*window.parent.innerWidth)/96);
+	  const ph = Math.floor((25.4*window.parent.innerHeight)/96);
+
+	  const w = window.devicePixelRatio*window.parent.innerWidth; // window.innerWidth return 0
+	  const h = window.devicePixelRatio*window.parent.innerHeight;
+
+	  Module.HEAPU8[$0] =  pw & 0xff;
+	  Module.HEAPU8[$0+1] = (pw >> 8) & 0xff;
+	  Module.HEAPU8[$0+2] = (pw >> 16) & 0xff;
+	  Module.HEAPU8[$0+3] = (pw >> 24) & 0xff;
+
+	  Module.HEAPU8[$1] =  ph & 0xff;
+	  Module.HEAPU8[$1+1] = (ph >> 8) & 0xff;
+	  Module.HEAPU8[$1+2] = (ph >> 16) & 0xff;
+	  Module.HEAPU8[$1+3] = (ph >> 24) & 0xff;
+
+	  Module.HEAPU8[$2] =  w & 0xff;
+	  Module.HEAPU8[$2+1] = (w >> 8) & 0xff;
+	  Module.HEAPU8[$2+2] = (w >> 16) & 0xff;
+	  Module.HEAPU8[$2+3] = (w >> 24) & 0xff;
+
+	  Module.HEAPU8[$3] =  h & 0xff;
+	  Module.HEAPU8[$3+1] = (h >> 8) & 0xff;
+	  Module.HEAPU8[$3+2] = (h >> 16) & 0xff;
+	  Module.HEAPU8[$3+3] = (h >> 24) & 0xff;
+
+	}, &physical_width, &physical_height, &width, &height);
+
+      emscripten_log(EM_LOG_CONSOLE, "wl_output: %d %d %d %d", physical_width, physical_height, width, height);
+
+      send_event(proxy, "geometry", 0, 0, physical_width, physical_height, 0, "", "", 0);
+      send_event(proxy, "mode", 0, width, height, 60);
+      //TODO
+      //send_event(proxy, "done", );
     }
     else if (strcmp(proxy->interface->name, "xdg_toplevel") == 0) {
 
@@ -2191,6 +2369,8 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
 
 	  Module.mods = 0;
 
+	  //TODO handle left and right modifiers
+
 	  Module.computeMods = (shift, alt, ctrl) => {
 
 	    let mods = 0;
@@ -2199,7 +2379,7 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
 	      mods = mods|1;
 
 	    if (alt)
-	      mods = mods|2;
+	      mods = mods|128;
 
 	    if (ctrl)
 	      mods = mods|4;
@@ -2243,6 +2423,9 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
 	      return 0xff50;
 	    else if (event.key === "End")
 	      return 0xff57;
+	    else if (event.key.length >= 3) {
+	      return -1;
+	    }
 	    else if ( (event.keyCode >= 112) && (event.keyCode <= 123) ) { // F1-F12
 	      return event.keyCode+0xffbe-112;
 	    }
@@ -2269,6 +2452,19 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
 
 				      const timestamp = new Date().getTime();
 
+				      const scancode = Module.computeKey(event);
+
+				      if (scancode < 0)
+					return;
+
+				      Module['wayland'].events.push({
+
+					'type': 3, // keydown
+					'key': scancode-8, // !! to simulate Linux evdev scancode
+					'location': event.location,
+					'timestamp': timestamp
+					});
+
 				      let mods = Module.computeMods(event.shiftKey,event.altKey, event.ctrlKey);
 
 				      if (mods != Module.mods) {
@@ -2281,14 +2477,6 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
 					    'mods': mods
 					    });
 				      }
-
-				      Module['wayland'].events.push({
-
-					'type': 3, // keydown
-					'key': Module.computeKey(event)-8, // !! to simulate Linux evdev scancode
-					'location': event.location,
-					'timestamp': timestamp
-					});
 
 				      setTimeout(() => {
 
@@ -2329,10 +2517,15 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
 
 				      const timestamp = new Date().getTime();
 
+				      const scancode = Module.computeKey(event);
+
+				      if (scancode < 0)
+					return;
+
 				      Module['wayland'].events.push({
 
 					'type': 4, // keyup
-					'key': Module.computeKey(event)-8, // !! to simulate Linux evdev scancode
+					'key': scancode-8, // !! to simulate Linux evdev scancode
 					'location': event.location,
 					'timestamp': timestamp
 					});
@@ -2872,7 +3065,33 @@ xkb_state_mod_index_is_active(struct xkb_state *state, xkb_mod_index_t idx,
 
     //emscripten_log(EM_LOG_CONSOLE, "--> xkb_state_mod_index_is_active: state->depressed_mods: %d idx=%d", state->depressed_mods, idx);
 
-    return !!(state->depressed_mods & (1<<(idx-1)));
+    switch(idx) {
+
+    case MOD_SHIFT_INDEX:
+
+      return !!(state->depressed_mods & (1<<(idx-1)));
+
+      break;
+
+    case MOD_ALT_INDEX:
+
+      // alt not active 
+
+      // TOTO only right alt
+      
+      return 0;
+
+      break;
+      
+    case MOD_CTRL_INDEX:
+
+      return !!(state->depressed_mods & (1<<(idx-1)));
+
+      break;
+
+    default:
+      break;
+    }
   }
   
   return 0;
