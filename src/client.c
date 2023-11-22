@@ -1508,12 +1508,12 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 		       const struct wl_interface *interface, uint32_t version,
 		       uint32_t flags, ...) {
 
-  //printf("wl_proxy_marshal_flags: %p %p %p %d\n", proxy, proxy->interface, interface, opcode);
+  emscripten_log(EM_LOG_CONSOLE, "wl_proxy_marshal_flags: %p %p %p %d", proxy, proxy->interface, interface, opcode);
 
   if (!proxy || !proxy->interface || !proxy->interface->name)
     return NULL;
 
-  //printf("wl_proxy_marshal_flags: %s %d\n", proxy->interface->name, opcode);
+  emscripten_log(EM_LOG_CONSOLE, "wl_proxy_marshal_flags: %s %d", proxy->interface->name, opcode);
 
   if ( (strcmp(proxy->interface->name, "wl_display") == 0) &&
        (opcode == WL_DISPLAY_GET_REGISTRY) ) {
@@ -1563,7 +1563,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
   else if ( (strcmp(proxy->interface->name, "wl_compositor") == 0) &&
        (opcode == WL_COMPOSITOR_CREATE_SURFACE) ) {
 
-    printf("WL_COMPOSITOR_CREATE_SURFACE\n");
+    emscripten_log(EM_LOG_CONSOLE, "WL_COMPOSITOR_CREATE_SURFACE");
 
     int id = EM_ASM_INT({
 
@@ -1580,13 +1580,13 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
 	newCanvas.addEventListener("mouseenter", (event) => {
 
-	    console.log("mouseenter");
+	    //console.log("mouseenter");
 	    
 	  });
 
 	newCanvas.addEventListener("mouseleave", (event) => {
 
-	    console.log("mouseleave");
+	    //console.log("mouseleave");
 	    
 	  });
 
@@ -1729,7 +1729,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 	return id;
       });
     
-    printf("WL_COMPOSITOR_CREATE_SURFACE: %d\n", id);
+    emscripten_log(EM_LOG_CONSOLE, "WL_COMPOSITOR_CREATE_SURFACE: %d", id);
 
     for (int i = 0; i < NB_SURFACE_MAX; ++i) {
 
@@ -1741,7 +1741,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 	surfaces[i].proxy.wl_display = &display;
 	surfaces[i].proxy.interface = &wl_surface_interface;
 
-	printf("WL_COMPOSITOR_CREATE_SURFACE: wl_surface=%p\n", &surfaces[i]);
+	emscripten_log(EM_LOG_CONSOLE, "WL_COMPOSITOR_CREATE_SURFACE: wl_surface=%p", &surfaces[i]);
 
 	return (struct wl_proxy *)&surfaces[i];
       }
@@ -1764,7 +1764,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
       if (xdg_surfaces[i].wl_surface == wl_surface) {
 
-	printf("XDG_WM_BASE_GET_XDG_SURFACE: %p\n", &xdg_surfaces[i]);
+	emscripten_log(EM_LOG_CONSOLE, "XDG_WM_BASE_GET_XDG_SURFACE: %p", &xdg_surfaces[i]);
 
 	return (struct wl_proxy *)&xdg_surfaces[i];
       }
@@ -1775,7 +1775,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 	xdg_surfaces[i].proxy.wl_display = &display;
 	xdg_surfaces[i].proxy.interface = &xdg_surface_interface;
 
-	printf("XDG_WM_BASE_GET_XDG_SURFACE: %p (wl_surface=%p)\n", &xdg_surfaces[i], wl_surface);
+	emscripten_log(EM_LOG_CONSOLE, "XDG_WM_BASE_GET_XDG_SURFACE: %p (wl_surface=%p)", &xdg_surfaces[i], wl_surface);
 
 	return (struct wl_proxy *)&xdg_surfaces[i];
       }
@@ -1784,7 +1784,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
   else if ( (strcmp(proxy->interface->name, "xdg_surface") == 0) &&
        (opcode == XDG_SURFACE_GET_TOPLEVEL) ) {
 
-    printf("XDG_SURFACE_GET_TOPLEVEL: xdg_surface=%p wl_surface=%p id=%d\n", proxy, ((struct xdg_surface *)proxy)->wl_surface, ((struct xdg_surface *)proxy)->wl_surface->id);
+    emscripten_log(EM_LOG_CONSOLE, "XDG_SURFACE_GET_TOPLEVEL: xdg_surface=%p wl_surface=%p id=%d", proxy, ((struct xdg_surface *)proxy)->wl_surface, ((struct xdg_surface *)proxy)->wl_surface->id);
 
     EM_ASM({
 
@@ -1824,7 +1824,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
   else if ( (strcmp(proxy->interface->name, "xdg_surface") == 0) &&
        (opcode == XDG_SURFACE_ACK_CONFIGURE) ) {
 
-    printf("XDG_SURFACE_ACK_CONFIGURE\n");
+    emscripten_log(EM_LOG_CONSOLE, "XDG_SURFACE_ACK_CONFIGURE");
 
     EM_ASM({
 
@@ -1855,7 +1855,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
   else if ( (strcmp(proxy->interface->name, "wl_surface") == 0) &&
        (opcode == WL_SURFACE_COMMIT) ) {
 
-    printf("WL_SURFACE_COMMIT: %p\n", proxy);
+    emscripten_log(EM_LOG_CONSOLE, "WL_SURFACE_COMMIT: %p", proxy);
 
     if (((struct wl_surface *)proxy)->buffer) {
 
@@ -1925,7 +1925,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
   else if ( (strcmp(proxy->interface->name, "wl_surface") == 0) &&
        (opcode == WL_SURFACE_FRAME) ) {
 
-    printf("WL_SURFACE_FRAME\n");
+    emscripten_log(EM_LOG_CONSOLE, "WL_SURFACE_FRAME");
 
     for (int i = 0; i < NB_CALLBACK_MAX; ++i) {
 
@@ -1954,7 +1954,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
     va_end(ap);
 
-    printf("WL_SURFACE_DAMAGE_BUFFER: %d %d %d %d\n", x, y, width, height);
+    emscripten_log(EM_LOG_CONSOLE, "WL_SURFACE_DAMAGE_BUFFER: %d %d %d %d", x, y, width, height);
 
     EM_ASM({
 
@@ -1989,7 +1989,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
     wl_shm_pools[0].proxy.wl_display = &display;
     wl_shm_pools[0].proxy.interface = &wl_shm_pool_interface;
 
-    printf("WL_SHM_CREATE_POOL: fd=%d size=%d -> %p\n", fd, size, &wl_shm_pools[0]);
+    emscripten_log(EM_LOG_CONSOLE, "WL_SHM_CREATE_POOL: fd=%d size=%d -> %p", fd, size, &wl_shm_pools[0]);
 
     return (struct wl_proxy *)&wl_shm_pools[0];
   }
