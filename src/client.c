@@ -2,9 +2,8 @@
 #include <wayland-client-core.h>
 #include <wayland-client.h>
 #include <wayland-client-protocol.h>
-#include <wayland-client-protocol-core.h>
-#include <xdg-shell.h>
-#include <xdg-decoration-unstable-v1.h>
+#include <xdg-shell-client-protocol.h>
+#include <xdg-decoration-unstable-v1-client-protocol.h>
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -18,7 +17,7 @@
 #include <xkbcommon/xkbcommon-compose.h>
 
 #define printf(...)
-#define emscripten_log(...)
+//#define emscripten_log(...)
 
 #define NB_SURFACE_MAX 64
 #define EVENT_QUEUE_SIZE 64
@@ -38,6 +37,7 @@ struct wl_proxy {
   void * data;
   void (**listeners)(void);
   const struct wl_interface * interface;
+  char tag[64];
 };
 
 struct event {
@@ -135,6 +135,7 @@ struct zxdg_decoration_manager_v1 {
 struct zxdg_toplevel_decoration_v1 {
 
   struct wl_proxy proxy;
+  int mode;
 };
 
 struct xdg_toplevel {
@@ -162,6 +163,14 @@ struct xkb_state {
   uint32_t locked_mods;
 };
 
+struct xkb_compose_state {
+  
+};
+
+struct wl_cursor_theme {
+
+};
+
 
 static struct wl_display display = {
 
@@ -185,6 +194,9 @@ static struct wl_callback frame_callbacks[NB_CALLBACK_MAX];
 struct xkb_keymap keymap;
 
 struct xkb_state kbd_state;
+struct xkb_compose_state kbd_compose_state;
+
+struct wl_cursor_theme cursor_theme;
 
 struct args_usu {
 
@@ -466,6 +478,8 @@ void send_event(struct wl_proxy * proxy, const char * name, ...) {
 
 struct wl_display * wl_display_connect(const char *name) {
 
+  emscripten_log(EM_LOG_CONSOLE, "--> wl_display_connect");
+  
   EM_ASM_({
 
       const fd = 0x7e000000;
@@ -569,6 +583,24 @@ struct wl_display * wl_display_connect(const char *name) {
 	  Module['wayland'].requests = new Array();
 
 	  window.requestAnimationFrame(Module['wayland'].render);
+
+	  if (Module.swapCounter) {
+
+	    if (Module.swapCounter > 0) {
+
+	      Module.swapCounter -= 1;
+	    }
+
+	    if ( (Module.swapCounter == 0) && (Module.swapBuffersWakeUp) ) {
+
+	      Module.swapCounter = Module.swapInterval;
+
+	      const wakeUp = Module.swapBuffersWakeUp;
+	      
+	      Module.swapBuffersWakeUp = null;
+	      wakeUp(1);
+	    }
+	  }
 	};
 
 	Module['wayland'].queueNotEmpty = 0;
@@ -656,6 +688,17 @@ uint32_t wl_proxy_get_version(struct wl_proxy * proxy)
 	return proxy->version;
 }
 
+void
+wl_proxy_set_tag(struct wl_proxy *proxy,
+		 const char * const *tag) {
+  
+  if (tag && *tag) {
+    emscripten_log(EM_LOG_CONSOLE, "wl_proxy_set_tag: %p tag=%s", *tag);
+    
+    strcpy(proxy->tag, *tag);
+  }
+}
+
 int wl_display_roundtrip(struct wl_display * display) {
 
   while (display->head != display->tail) {
@@ -703,6 +746,16 @@ int wl_display_roundtrip(struct wl_display * display) {
 
 	  if (listener)
 	    (*listener)(display->event_queue[display->tail].proxy->data, display->event_queue[display->tail].proxy, args->arg1, args->arg2, args->arg3);
+	  
+	  struct wl_array * a = args->arg3;
+	  
+	  if (a) {
+	    
+	    if (a->data)
+	      free(a->data);
+	    
+	    free(a);
+	  }
 	}
 	else if (strcmp(interface->events[i].signature+offset, "uhu") == 0) {
 
@@ -1795,6 +1848,9 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 	div.style.left = Math.floor(Math.random() * 100) + "px";
 	div.style.top = Math.floor(Math.random() * 100) + "px";
 
+	div.style.width = Module['surfaces'][$0-1].style.width;
+	div.style.height = Module['surfaces'][$0-1].style.height;
+
 	let deco = document.createElement("div");
 	deco.id = "deco";
 
@@ -1803,6 +1859,74 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 	div.appendChild(Module['surfaces'][$0-1]);
 	  
 	document.body.appendChild(div);
+
+	if (!Module.listenersRegistered) {
+
+	  Module.listenersRegistered = true;
+
+	  window.addEventListener('message', (event) => {
+
+	      if (event.data.type == 8) { // mouse down
+
+		for (const div of document.getElementsByTagName("div")) {
+
+		  const rect = div.getBoundingClientRect();
+
+		  //console.log("Bingo ? ");
+		  //console.log("x="+event.data.x+", y="+event.data.y);
+		  //console.log(rect);
+		  
+		  if ( (event.data.x >= rect.left) && (event.data.x <= rect.right) && (event.data.y >= rect.top) && (event.data.y <= rect.bottom) ) {
+
+		    let m = new Object();
+	
+		    m.type = 10; // ask focus
+		    m.pid = Module.getpid() & 0x0000ffff;
+		    
+		    window.parent.postMessage(m);
+
+		    //console.log("Bingo !!");
+		    //console.log(rect);
+
+		    return;
+		  }
+		}
+
+		let m = new Object();
+		
+		m.type = 9; // continue searching clicked window
+		m.pid = Module.getpid() & 0x0000ffff;
+		m.x = event.data.x;
+		m.y = event.data.y;
+		    
+		window.parent.postMessage(m);
+	      }
+	    });
+
+	  document.body.addEventListener("mousedown", (event) => {
+
+	      console.log("Body mouse down: click outside window !");
+	      console.log(event);
+
+	      let m = new Object();
+	
+	      m.type = 8; // mouse down
+	      m.pid = Module.getpid() & 0x0000ffff;
+	      m.x = event.clientX;
+	      m.y = event.clientY;
+
+	      window.parent.postMessage(m);
+	      
+	    }, false);
+
+	  document.body.addEventListener("mouseup", (event) => {
+
+	      console.log("Body mouse up");
+
+	      Module.selected_toplevel = null;
+	      
+	    }, false);
+	}
 
       }, ((struct xdg_surface *)proxy)->wl_surface->id);
 
@@ -1815,7 +1939,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 	xdg_toplevels[i].proxy.wl_display = &display;
 	xdg_toplevels[i].proxy.interface = &xdg_toplevel_interface;
 	
-	printf("XDG_SURFACE_GET_TOPLEVEL: %p\n", &xdg_toplevels[i]);
+	emscripten_log(EM_LOG_CONSOLE, "XDG_SURFACE_GET_TOPLEVEL: %p", &xdg_toplevels[i]);
 
 	return (struct wl_proxy *)&xdg_toplevels[i];
       }
@@ -2057,6 +2181,8 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
     toplevel->decoration.proxy.wl_display = &display;
     toplevel->decoration.proxy.interface = &zxdg_toplevel_decoration_v1_interface;
 
+    toplevel->decoration.mode = ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE;
+
     return (struct wl_proxy *)&(toplevel->decoration);
   }
   else if ( (strcmp(proxy->interface->name, "zxdg_toplevel_decoration_v1") == 0) &&
@@ -2069,6 +2195,8 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
     uint32_t mode = va_arg(ap, uint32_t);
     
     va_end(ap);
+
+    ((struct zxdg_toplevel_decoration_v1 *)proxy)->mode = mode;
 
     if (mode == ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE) {
 
@@ -2193,7 +2321,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 	      
 	    }, false);
 
-	  window.addEventListener('message', (event) => {
+	  /*window.addEventListener('message', (event) => {
 
 	      if (event.data.type == 8) { // mouse down
 
@@ -2258,7 +2386,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
 	      window.parent.postMessage(m);
 	      
-	    }, false);
+	      }, false);
 
 	  document.body.addEventListener("mouseup", (event) => {
 
@@ -2266,7 +2394,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
 	      Module.selected_toplevel = null;
 	      
-	    }, false);
+	      }, false);*/
 	
 	}, toplevel->xdg_surface->wl_surface->id, toplevel->title, innerHTMLDeco);
 
@@ -2329,15 +2457,15 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
 
       send_event(proxy, "geometry", 0, 0, physical_width, physical_height, 0, "", "", 0);
       send_event(proxy, "mode", 0, width, height, 60);
-      //TODO
-      //send_event(proxy, "done", );
+      send_event(proxy, "done");
     }
     else if (strcmp(proxy->interface->name, "xdg_toplevel") == 0) {
 
       int width, height;
       
-      EM_ASM({
+      /*EM_ASM({
 
+	  //TODOO: Fix width, height
 	  const w = window.devicePixelRatio*window.parent.innerWidth; // window.innerWidth return 0
 	  const h = window.devicePixelRatio*window.parent.innerHeight;
 
@@ -2354,14 +2482,31 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
 	}, &width, &height);
 
       width = (4*width/5);
-      height = (4*height/5);
+      height = (4*height/5);*/
 
-      send_event(proxy, "configure", width, height, data);
+      struct wl_array * states;
+
+      states = (struct wl_array *)malloc(sizeof(struct wl_array));
+
+      states->size = 1 * sizeof(uint32_t);
+
+      states->data = malloc(states->size);
+
+      ((uint32_t *)(states->data))[0] = XDG_TOPLEVEL_STATE_ACTIVATED;
+
+      width = 0;
+      height = 0;
+      
+      send_event(proxy, "configure", width, height, states);
+    }
+    else if (strcmp(proxy->interface->name, "zxdg_toplevel_decoration_v1") == 0) {
+      
+      send_event(proxy, "configure", ((struct zxdg_toplevel_decoration_v1 *)proxy)->mode);
     }
     else if (strcmp(proxy->interface->name, "wl_seat") == 0) {
 
-      send_event(proxy, "capabilities", WL_SEAT_CAPABILITY_KEYBOARD);
-      send_event(proxy, "capabilities", WL_SEAT_CAPABILITY_POINTER);
+      send_event(proxy, "capabilities", WL_SEAT_CAPABILITY_KEYBOARD | WL_SEAT_CAPABILITY_POINTER);
+      //send_event(proxy, "capabilities", WL_SEAT_CAPABILITY_POINTER);
     }
     else if (strcmp(proxy->interface->name, "wl_keyboard") == 0) {
 
@@ -2554,13 +2699,16 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
     else if (strcmp(proxy->interface->name, "wl_pointer") == 0) {
 
       EM_ASM({
+
 	  Module.pointerListener = true;
 	});
     }
   }
-  
-  proxy->data = data;
-  proxy->listeners = implementation;
+
+  if (proxy) {
+    proxy->data = data;
+    proxy->listeners = implementation;
+  }
   
   return 0;
 }
@@ -2818,6 +2966,12 @@ wl_display_dispatch_pending(struct wl_display *display) {
 }
 
 int
+wl_display_prepare_read(struct wl_display *display) {
+
+  return 0;
+}
+
+int
 wl_cursor_frame_and_duration(struct wl_cursor *cursor, uint32_t time,
 			     uint32_t *duration)
 {
@@ -2873,7 +3027,7 @@ wl_cursor_create_from_xcursor_images(struct xcursor_images *images,
 struct wl_cursor_theme *
 wl_cursor_theme_load(const char *name, int size, struct wl_shm *shm)
 {
-  return NULL;
+  return &cursor_theme;
 }
 
 void
@@ -2896,6 +3050,11 @@ wl_display_flush(struct wl_display *display)
   printf("wl_display_flush: head=%d tail=%d\n", display->head, display->tail);
 
   return 0;
+}
+
+void wl_display_cancel_read(struct wl_display* display) {
+
+  
 }
 
 int
@@ -2927,7 +3086,7 @@ struct xkb_compose_state *
 xkb_compose_state_new(struct xkb_compose_table *table,
                       enum xkb_compose_state_flags flags) {
 
-  return NULL;
+  return &kbd_compose_state;
 }
 
 void
@@ -3143,10 +3302,10 @@ xkb_state_update_mask(struct xkb_state *state,
 
 struct wl_egl_window {
 
-  struct wl_proxy proxy;
+  /*struct wl_proxy proxy;
   struct wl_surface * surface;
   int width;
-  int height;
+  int height;*/
   
 };
 
@@ -3156,9 +3315,9 @@ struct wl_egl_window *
 wl_egl_window_create(struct wl_surface *surface,
 		     int width, int height) {
 
-  wl_egl_window.surface = surface;
+  /*wl_egl_window.surface = surface;
   wl_egl_window.width = width;
-  wl_egl_window.height = height;
+  wl_egl_window.height = height;*/
 
   EM_ASM({
 
@@ -3170,11 +3329,12 @@ wl_egl_window_create(struct wl_surface *surface,
       canvas.style.width = $1 / window.devicePixelRatio + "px";
       canvas.style.height = $2 / window.devicePixelRatio + "px";
 
-      canvas.parentElement.style.width = $1 / window.devicePixelRatio + "px";
+      if (canvas.parentElement)
+	canvas.parentElement.style.width = $1 / window.devicePixelRatio + "px";
 
     }, surface->id, width, height);
     
-  return &wl_egl_window;
+  return /*&wl_egl_window*/(struct wl_egl_window *)surface->id;
 }
 
 void
