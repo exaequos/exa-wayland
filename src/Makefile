@@ -1,11 +1,11 @@
 libexa-wayland.a: client.c build/xdg-shell-client-protocol.h build/xdg-decoration-unstable-v1-client-protocol.h build/idle-inhibit-unstable-v1-client-protocol.h build/pointer-constraints-unstable-v1-client-protocol.h build/relative-pointer-unstable-v1-client-protocol.h build/viewporter-client-protocol.h build/wayland-client-protocol-code.h build/xdg-shell-client-protocol-code.h build/xdg-decoration-unstable-v1-client-protocol-code.h build/idle-inhibit-unstable-v1-client-protocol-code.h build/pointer-constraints-unstable-v1-client-protocol-code.h build/relative-pointer-unstable-v1-client-protocol-code.h build/viewporter-client-protocol-code.h
 	cp /usr/include/wayland* build/
 	cp -R /usr/include/xkbcommon build/
-	$(CC) $(CFLAGS) -g client.c -c -o build/client.o -I build/
+	$(CC) $(CFLAGS) -O3 client.c -c -o build/client.o -I build/
 	$(AR) rcs build/libexa-wayland.a build/client.o
 
 light:
-	$(CC) $(CFLAGS) -g client.c -c -o build/client.o -I build/
+	$(CC) $(CFLAGS) -O3 client.c -c -o build/client.o -I build/
 	$(AR) rcs build/libexa-wayland.a build/client.o
 
 build/wayland-client-protocol-code.h: /usr/share/wayland/wayland.xml

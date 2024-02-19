@@ -17,7 +17,10 @@
 #include <xkbcommon/xkbcommon-compose.h>
 
 #define printf(...)
-//#define emscripten_log(...)
+#define emscripten_log(...)
+
+#define XDG_WM_BASE_VERSION 4
+#define WL_SEAT_VERSION     8
 
 #define NB_SURFACE_MAX 64
 #define EVENT_QUEUE_SIZE 64
@@ -37,7 +40,7 @@ struct wl_proxy {
   void * data;
   void (**listeners)(void);
   const struct wl_interface * interface;
-  char tag[64];
+  char * const * tag;
 };
 
 struct event {
@@ -191,12 +194,14 @@ static struct wl_buffer wl_buffers[16];
 
 static struct wl_callback frame_callbacks[NB_CALLBACK_MAX];
 
-struct xkb_keymap keymap;
+static struct xkb_keymap keymap;
 
-struct xkb_state kbd_state;
-struct xkb_compose_state kbd_compose_state;
+static struct xkb_state kbd_state;
+static struct xkb_compose_state kbd_compose_state;
 
-struct wl_cursor_theme cursor_theme;
+static struct wl_cursor_theme cursor_theme;
+
+static xkb_keysym_t latest_keysym;
 
 struct args_usu {
 
@@ -279,6 +284,27 @@ struct args_uiii {
   int32_t arg2;
   int32_t arg3;
   int32_t arg4;
+};
+
+struct args_uoff {
+
+  uint32_t arg1;
+  void * arg2;
+  int32_t arg3;
+  int32_t arg4;
+};
+
+struct args_uo {
+
+  uint32_t arg1;
+  void * arg2;
+};
+
+struct args_uoa {
+
+  uint32_t arg1;
+  void * arg2;
+  void * arg3;
 };
 
 void send_event(struct wl_proxy * proxy, const char * name, ...) {
@@ -445,6 +471,34 @@ void send_event(struct wl_proxy * proxy, const char * name, ...) {
 	args->arg2 = va_arg(ap, int32_t);
 	args->arg3 = va_arg(ap, int32_t);
 	args->arg4 = va_arg(ap, int32_t);
+      }
+      else if (strcmp(interface->events[i].signature+offset, "uoff") == 0) {
+
+	struct args_uoff * args = (struct args_uoff *)malloc(sizeof(struct args_uoff));
+
+	display.event_queue[display.head].args = args;
+
+	args->arg1 = va_arg(ap, uint32_t);
+	args->arg2 = va_arg(ap, void *);
+	args->arg3 = va_arg(ap, int32_t);
+	args->arg4 = va_arg(ap, int32_t);
+      }
+      else if (strcmp(interface->events[i].signature+offset, "uo") == 0) {
+	struct args_uo * args = (struct args_uo *)malloc(sizeof(struct args_uo));
+
+	display.event_queue[display.head].args = args;
+
+	args->arg1 = va_arg(ap, uint32_t);
+	args->arg2 = va_arg(ap, void *);
+      }
+      else if (strcmp(interface->events[i].signature+offset, "uoa") == 0) {
+	struct args_uoa * args = (struct args_uoa *)malloc(sizeof(struct args_uoa));
+
+	display.event_queue[display.head].args = args;
+
+	args->arg1 = va_arg(ap, uint32_t);
+	args->arg2 = va_arg(ap, void *);
+	args->arg3 = va_arg(ap, void *);
       }
       else if (interface->events[i].signature[offset] == 0) {
 
@@ -689,14 +743,28 @@ uint32_t wl_proxy_get_version(struct wl_proxy * proxy)
 }
 
 void
+wl_proxy_set_user_data(struct wl_proxy *proxy, void *user_data) {
+
+  proxy->data = user_data;
+}
+
+void *
+wl_proxy_get_user_data(struct wl_proxy *proxy) {
+
+  return proxy->data;
+}
+
+void
 wl_proxy_set_tag(struct wl_proxy *proxy,
 		 const char * const *tag) {
   
-  if (tag && *tag) {
-    emscripten_log(EM_LOG_CONSOLE, "wl_proxy_set_tag: %p tag=%s", *tag);
-    
-    strcpy(proxy->tag, *tag);
-  }
+  proxy->tag = tag;
+}
+
+const char * const *
+wl_proxy_get_tag(struct wl_proxy *proxy) {
+  
+  return proxy->tag;
 }
 
 int wl_display_roundtrip(struct wl_display * display) {
@@ -722,7 +790,7 @@ int wl_display_roundtrip(struct wl_display * display) {
 
 	if (strcmp(interface->events[i].signature+offset, "usu") == 0) {
 
-	  void (*listener)(void *, struct wl_proxy *, uint32_t, const char *, uint32_t) = display->event_queue[display->tail].proxy->listeners[i];
+	  void (*listener)(void *, struct wl_proxy *, uint32_t, const char *, uint32_t) = (void (*)(void *, struct wl_proxy *, uint32_t, const char *, uint32_t))display->event_queue[display->tail].proxy->listeners[i];
 
 	  struct args_usu * args = (struct args_usu * )display->event_queue[display->tail].args;
 
@@ -731,7 +799,7 @@ int wl_display_roundtrip(struct wl_display * display) {
 	}
 	else if (strcmp(interface->events[i].signature+offset, "u") == 0) {
 
-	  void (*listener)(void *, struct wl_proxy *, uint32_t) = display->event_queue[display->tail].proxy->listeners[i];
+	  void (*listener)(void *, struct wl_proxy *, uint32_t) = (void (*)(void *, struct wl_proxy *, uint32_t))display->event_queue[display->tail].proxy->listeners[i];
 
 	  struct args_u * args = (struct args_u * )display->event_queue[display->tail].args;
 
@@ -740,7 +808,7 @@ int wl_display_roundtrip(struct wl_display * display) {
 	}
 	else if (strcmp(interface->events[i].signature+offset, "iia") == 0) {
 
-	  void (*listener)(void *, struct wl_proxy *, int32_t, int32_t, struct wl_array *) = display->event_queue[display->tail].proxy->listeners[i];
+	  void (*listener)(void *, struct wl_proxy *, int32_t, int32_t, struct wl_array *) = (void (*)(void *, struct wl_proxy *, int32_t, int32_t, struct wl_array *))display->event_queue[display->tail].proxy->listeners[i];
 
 	  struct args_iia * args = (struct args_iia * )display->event_queue[display->tail].args;
 
@@ -759,7 +827,7 @@ int wl_display_roundtrip(struct wl_display * display) {
 	}
 	else if (strcmp(interface->events[i].signature+offset, "uhu") == 0) {
 
-	  void (*listener)(void *, struct wl_proxy *, uint32_t, int32_t, uint32_t) = display->event_queue[display->tail].proxy->listeners[i];
+	  void (*listener)(void *, struct wl_proxy *, uint32_t, int32_t, uint32_t) = (void (*)(void *, struct wl_proxy *, uint32_t, int32_t, uint32_t))display->event_queue[display->tail].proxy->listeners[i];
 
 	  struct args_uhu * args = (struct args_uhu * )display->event_queue[display->tail].args;
 
@@ -768,7 +836,7 @@ int wl_display_roundtrip(struct wl_display * display) {
 	}
 	else if (strcmp(interface->events[i].signature+offset, "uuuu") == 0) {
 
-	  void (*listener)(void *, struct wl_proxy *, uint32_t, uint32_t, uint32_t, uint32_t) = display->event_queue[display->tail].proxy->listeners[i];
+	  void (*listener)(void *, struct wl_proxy *, uint32_t, uint32_t, uint32_t, uint32_t) = (void (*)(void *, struct wl_proxy *, uint32_t, uint32_t, uint32_t, uint32_t))display->event_queue[display->tail].proxy->listeners[i];
 
 	  struct args_uuuu * args = (struct args_uuuu * )display->event_queue[display->tail].args;
 
@@ -777,7 +845,7 @@ int wl_display_roundtrip(struct wl_display * display) {
 	}
 	else if (strcmp(interface->events[i].signature+offset, "ii") == 0) {
 
-	  void (*listener)(void *, struct wl_proxy *, int32_t, int32_t) = display->event_queue[display->tail].proxy->listeners[i];
+	  void (*listener)(void *, struct wl_proxy *, int32_t, int32_t) = (void (*)(void *, struct wl_proxy *, int32_t, int32_t))display->event_queue[display->tail].proxy->listeners[i];
 
 	  struct args_ii * args = (struct args_ii * )display->event_queue[display->tail].args;
 
@@ -786,7 +854,7 @@ int wl_display_roundtrip(struct wl_display * display) {
 	}
 	else if (strcmp(interface->events[i].signature+offset, "uuuuu") == 0) {
 
-	  void (*listener)(void *, struct wl_proxy *, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) = display->event_queue[display->tail].proxy->listeners[i];
+	  void (*listener)(void *, struct wl_proxy *, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) = (void (*)(void *, struct wl_proxy *, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t))display->event_queue[display->tail].proxy->listeners[i];
 
 	  struct args_uuuuu * args = (struct args_uuuu * )display->event_queue[display->tail].args;
 
@@ -795,7 +863,7 @@ int wl_display_roundtrip(struct wl_display * display) {
 	}
 	else if (strcmp(interface->events[i].signature+offset, "uuf") == 0) {
 
-	  void (*listener)(void *, struct wl_proxy *, uint32_t, uint32_t, int32_t) = display->event_queue[display->tail].proxy->listeners[i];
+	  void (*listener)(void *, struct wl_proxy *, uint32_t, uint32_t, int32_t) = (void (*)(void *, struct wl_proxy *, uint32_t, uint32_t, int32_t))display->event_queue[display->tail].proxy->listeners[i];
 
 	  struct args_uuf * args = (struct args_uuf * )display->event_queue[display->tail].args;
 
@@ -804,7 +872,7 @@ int wl_display_roundtrip(struct wl_display * display) {
 	}
 	else if (strcmp(interface->events[i].signature+offset, "uff") == 0) {
 
-	  void (*listener)(void *, struct wl_proxy *, uint32_t, int32_t, int32_t) = display->event_queue[display->tail].proxy->listeners[i];
+	  void (*listener)(void *, struct wl_proxy *, uint32_t, int32_t, int32_t) = (void (*)(void *, struct wl_proxy *, uint32_t, int32_t, int32_t))display->event_queue[display->tail].proxy->listeners[i];
 
 	  struct args_uff * args = (struct args_uff * )display->event_queue[display->tail].args;
 
@@ -813,7 +881,7 @@ int wl_display_roundtrip(struct wl_display * display) {
 	}
 	else if (strcmp(interface->events[i].signature+offset, "iiiiissi") == 0) {
 
-	  void (*listener)(void *, struct wl_proxy *, int32_t, int32_t, int32_t, int32_t, int32_t, char *, char *, int32_t) = display->event_queue[display->tail].proxy->listeners[i];
+	  void (*listener)(void *, struct wl_proxy *, int32_t, int32_t, int32_t, int32_t, int32_t, char *, char *, int32_t) = (void (*)(void *, struct wl_proxy *, int32_t, int32_t, int32_t, int32_t, int32_t, char *, char *, int32_t))display->event_queue[display->tail].proxy->listeners[i];
 
 	  struct args_iiiiissi * args = (struct args_iiiiissi * )display->event_queue[display->tail].args;
 
@@ -828,16 +896,53 @@ int wl_display_roundtrip(struct wl_display * display) {
 	}
 	else if (strcmp(interface->events[i].signature+offset, "uiii") == 0) {
 
-	  void (*listener)(void *, struct wl_proxy *, uint32_t, int32_t, int32_t, int32_t) = display->event_queue[display->tail].proxy->listeners[i];
+	  void (*listener)(void *, struct wl_proxy *, uint32_t, int32_t, int32_t, int32_t) = (void (*)(void *, struct wl_proxy *, uint32_t, int32_t, int32_t, int32_t))display->event_queue[display->tail].proxy->listeners[i];
 
 	  struct args_uiii * args = (struct args_uiii * )display->event_queue[display->tail].args;
 
 	  if (listener)
 	    (*listener)(display->event_queue[display->tail].proxy->data, display->event_queue[display->tail].proxy, args->arg1, args->arg2, args->arg3, args->arg4);
 	}
+	else if (strcmp(interface->events[i].signature+offset, "uoff") == 0) {
+
+	  void (*listener)(void *, struct wl_proxy *, uint32_t, void *, int32_t, int32_t) = (void (*)(void *, struct wl_proxy *, uint32_t, void *, int32_t, int32_t))display->event_queue[display->tail].proxy->listeners[i];
+
+	  struct args_uoff * args = (struct args_uoff * )display->event_queue[display->tail].args;
+
+	  if (listener)
+	    (*listener)(display->event_queue[display->tail].proxy->data, display->event_queue[display->tail].proxy, args->arg1, args->arg2, args->arg3, args->arg4);
+	}
+	else if (strcmp(interface->events[i].signature+offset, "uo") == 0) {
+
+	  void (*listener)(void *, struct wl_proxy *, uint32_t, void *) = (void (*)(void *, struct wl_proxy *, uint32_t, void *))display->event_queue[display->tail].proxy->listeners[i];
+
+	  struct args_uo * args = (struct args_uo * )display->event_queue[display->tail].args;
+
+	  if (listener)
+	    (*listener)(display->event_queue[display->tail].proxy->data, display->event_queue[display->tail].proxy, args->arg1, args->arg2);
+	}
+	else if (strcmp(interface->events[i].signature+offset, "uoa") == 0) {
+
+	  void (*listener)(void *, struct wl_proxy *, uint32_t, void *, void *) = (void (*)(void *, struct wl_proxy *, uint32_t, void *, void *))display->event_queue[display->tail].proxy->listeners[i];
+
+	  struct args_uoa * args = (struct args_uoa * )display->event_queue[display->tail].args;
+
+	  if (listener)
+	    (*listener)(display->event_queue[display->tail].proxy->data, display->event_queue[display->tail].proxy, args->arg1, args->arg2, args->arg3);
+
+	  struct wl_array * a = args->arg3;
+	  
+	  if (a) {
+	    
+	    if (a->data)
+	      free(a->data);
+	    
+	    free(a);
+	  }
+	}
 	else if (interface->events[i].signature[offset] == 0) {
 
-	  void (*listener)(void *, struct wl_proxy *) = display->event_queue[display->tail].proxy->listeners[i];
+	  void (*listener)(void *, struct wl_proxy *) = (void (*)(void *, struct wl_proxy *))display->event_queue[display->tail].proxy->listeners[i];
 	  
 	  if (listener)
 	    (*listener)(display->event_queue[display->tail].proxy->data, display->event_queue[display->tail].proxy);
@@ -1498,7 +1603,7 @@ static struct xdg_wm_base xdg_wm_base = {
 
   .proxy = {
 
-    .version = 0,
+    .version = XDG_WM_BASE_VERSION,
     .wl_display = &display,
     .interface = &xdg_wm_base_interface,
   },
@@ -1508,7 +1613,7 @@ static struct wl_seat seat = {
 
   .proxy = {
     
-    .version = 0,
+    .version = WL_SEAT_VERSION,
     .wl_display = &display,
     .interface = &wl_seat_interface,
   },
@@ -1576,8 +1681,8 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
     send_event((struct wl_proxy *) &registry, "global", i++, "wl_compositor", 5);
     send_event((struct wl_proxy *) &registry, "global", i++, "wl_shm", 1);
     send_event((struct wl_proxy *) &registry, "global", i++, "wl_output", 3);
-    send_event((struct wl_proxy *) &registry, "global", i++, "xdg_wm_base", 4);
-    send_event((struct wl_proxy *) &registry, "global", i++, "wl_seat", 8);
+    send_event((struct wl_proxy *) &registry, "global", i++, "xdg_wm_base", XDG_WM_BASE_VERSION);
+    send_event((struct wl_proxy *) &registry, "global", i++, "wl_seat", WL_SEAT_VERSION);
     send_event((struct wl_proxy *) &registry, "global", i++, "zxdg_decoration_manager_v1", 1);
     
     return (struct wl_proxy *)&registry;
@@ -1624,6 +1729,9 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
 	const newCanvas = document.createElement("canvas");
 
+	newCanvas.setAttribute("tabIndex", "1");
+	newCanvas.style.outline = "none";
+
 	if (!Module['surfaces'])
 	  Module['surfaces'] = new Array();
 
@@ -1634,13 +1742,50 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 	newCanvas.addEventListener("mouseenter", (event) => {
 
 	    //console.log("mouseenter");
+
+	    Module['wayland'].events.push({
+
+		'type': 10, // mouseenter
+		'id': id,
+		'x': event.offsetX * window.devicePixelRatio,
+		'y': event.offsetY * window.devicePixelRatio
+		});
+
+	      setTimeout(() => {
+
+		  if ( (Module['fd_table'][0x7e000000].notif_select) && (Module['wayland'].events.length > 0) ) {
+
+		    // TODO check rw
+		      
+		    Module['fd_table'][0x7e000000].notif_select(0x7e000000, 0);
+		  }
+		    
+		}, 0);
 	    
 	  });
 
 	newCanvas.addEventListener("mouseleave", (event) => {
 
 	    //console.log("mouseleave");
-	    
+
+	    Module['wayland'].events.push({
+
+		'type': 11, // mouseleave
+		'id': id,
+		'x': event.offsetX * window.devicePixelRatio,
+		'y': event.offsetY * window.devicePixelRatio
+		});
+
+	      setTimeout(() => {
+
+		  if ( (Module['fd_table'][0x7e000000].notif_select) && (Module['wayland'].events.length > 0) ) {
+
+		    // TODO check rw
+		      
+		    Module['fd_table'][0x7e000000].notif_select(0x7e000000, 0);
+		  }
+		    
+		}, 0);
 	  });
 
 	newCanvas.addEventListener("mousemove", (event) => {
@@ -1654,6 +1799,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 	      event.stopPropagation();
 
 	      //console.log(event);
+	      //console.log("id="+id);
 	      
 	      Module['wayland'].events.push({
 
@@ -1684,10 +1830,14 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 	    
 	    if (Module.pointerListener) {
 
+	      event.target.focus();
+
 	      event.preventDefault();
 	      event.stopPropagation();
 
+	      //console.log("Mouse Down");
 	      //console.log(event);
+	      //console.log("id="+id);
 	      
 	      Module['wayland'].events.push({
 
@@ -1720,8 +1870,10 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
 	      event.preventDefault();
 	      event.stopPropagation();
-	      
+
+	      //console.log("Mouse Up");
 	      //console.log(event);
+	      //console.log("id="+id);
 
 	      Module['wayland'].events.push({
 
@@ -1776,6 +1928,53 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 		}, 0);
 	      
 	    }
+	    
+	  });
+
+	newCanvas.addEventListener("focusin", (event) => {
+
+	    //console.log("focusin");
+	    //console.log(event);
+
+	    Module['wayland'].events.push({
+
+		'type': 12, // keyboard focus in
+		'id': id
+		});
+
+	      setTimeout(() => {
+
+		  if ( (Module['fd_table'][0x7e000000].notif_select) && (Module['wayland'].events.length > 0) ) {
+
+		    // TODO check rw
+		      
+		    Module['fd_table'][0x7e000000].notif_select(0x7e000000, 0);
+		  }
+		    
+		}, 0);
+	  });
+
+	newCanvas.addEventListener("focusout", (event) => {
+
+	    //console.log("focusout");
+	    //console.log(event);
+
+	    Module['wayland'].events.push({
+
+		'type': 13, // keyboard focus out
+		'id': id
+		});
+
+	      setTimeout(() => {
+
+		  if ( (Module['fd_table'][0x7e000000].notif_select) && (Module['wayland'].events.length > 0) ) {
+
+		    // TODO check rw
+		      
+		    Module['fd_table'][0x7e000000].notif_select(0x7e000000, 0);
+		  }
+		    
+		}, 0);
 	    
 	  });
 	
@@ -1902,6 +2101,18 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 		window.parent.postMessage(m);
 	      }
 	    });
+
+	  document.body.addEventListener("mousemove", (event) => {
+
+	      //console.log("Body mouse move");
+
+	      if (Module.selected_toplevel) {
+
+		Module.selected_toplevel.style.left = (Module.start_x+event.clientX-Module.selected_x)+"px";
+		Module.selected_toplevel.style.top = (Module.start_y+event.clientY-Module.selected_y)+"px";
+	      }
+	      
+	    }, false);
 
 	  document.body.addEventListener("mousedown", (event) => {
 
@@ -2206,7 +2417,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
       
       printf("ZXDG_TOPLEVEL_DECORATION_V1_SET_MODE: decoration=%p toplevel=%p xdg_surface=%p wl_surface=%p\n", proxy, toplevel, toplevel->xdg_surface, toplevel->xdg_surface->wl_surface);
 
-      char defaultInnerHTMLDeco[] = "<div id='innerDeco' style='height:25px;background-color:#ddfffb;display:flex;align-items:center'><img id='close' src='/netfs/usr/share/close_icon.png' style='width:15px;height:13px;margin-left:5px;user-select:none'></img><img id='min' src='/netfs/usr/share/min_icon.png' style='width:15px;height:15px;margin-left:5px;user-select:none'></img><span id='title' style='margin:auto; font-family:sans-serif; user-select:none'>[TITLE]</span></div>";
+      char defaultInnerHTMLDeco[] = "<div id='innerDeco' style='height:25px;background-color:#ddfffb;display:flex;align-items:center'><img id='close' src='/netfs/usr/share/close_icon.png' style='width:15px;height:13px;margin-left:5px;user-select:none'></img><img id='min' src='/netfs/usr/share/min_icon.png' style='width:15px;height:15px;margin-left:5px;user-select:none'></img><span id='title' style='margin:auto; font-family:sans-serif; user-select:none'>[TITLE]</span></div>\0";
 
       char * innerHTMLDeco = &defaultInnerHTMLDeco[0];
 
@@ -2225,11 +2436,12 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
 	fseek(f, 0, SEEK_SET);
 
-	innerHTMLDeco = (char *)malloc(size);
+	innerHTMLDeco = (char *)malloc(size+1);
 
 	if (innerHTMLDeco) {
 
 	  fread(innerHTMLDeco, 1, size, f);
+	  innerHTMLDeco[size] = 0;
 	}
 	else {
 
@@ -2250,11 +2462,11 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
 	  let decoHTML = UTF8ToString($2);
 
-	  deco.innerHTML += decoHTML.replace("[TITLE]", UTF8ToString($1)).trim();
+	  deco.innerHTML += decoHTML.replace("[TITLE]", UTF8ToString($1));
 
 	  deco.addEventListener("mousedown", (event) => {
 
-	      //console.log("Decoration mouse down: "+event.target.id);
+	      console.log("Decoration mouse down: "+event.target.id);
 
 		  if (event.target.id == 'close') {
 
@@ -2301,6 +2513,8 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 		  
 		    if (!Module.selected_toplevel) {
 
+		      console.log("Select toplevel");
+
 		      Module.selected_toplevel = deco.parentElement;
 		
 		      Module.selected_x = event.clientX;
@@ -2308,6 +2522,16 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 		      Module.start_x = parseInt(Module.selected_toplevel.style.left);
 		      Module.start_y = parseInt(Module.selected_toplevel.style.top);
 		    }
+		    
+		    const canvas = Module.selected_toplevel.getElementsByTagName("canvas")[0];
+
+		    if (canvas) {
+		      canvas.focus();
+		    }
+
+		    event.stopPropagation();
+		    event.preventDefault();
+		    
 		  }
 	      
 		}, false);
@@ -2840,6 +3064,48 @@ int wl_display_dispatch(struct wl_display * display) {
 	    Module.HEAPU8[$2+2] = (y >> 16) & 0xff;
 	    Module.HEAPU8[$2+3] = (y >> 24) & 0xff;
 	  }
+	  else if (event.type == 10) { // mouse enter
+
+	    Module.HEAPU8[$0] =  event.id & 0xff;
+	    Module.HEAPU8[$0+1] = (event.id >> 8) & 0xff;
+	    Module.HEAPU8[$0+2] = (event.id >> 16) & 0xff;
+	    Module.HEAPU8[$0+3] = (event.id >> 24) & 0xff;
+
+	    let x = event.x * 256; // convert to fixed
+	    
+	    Module.HEAPU8[$1] =  x & 0xff;
+	    Module.HEAPU8[$1+1] = (x >> 8) & 0xff;
+	    Module.HEAPU8[$1+2] = (x >> 16) & 0xff;
+	    Module.HEAPU8[$1+3] = (x >> 24) & 0xff;
+
+	    let y = event.y * 256; // convert to fixed
+	    
+	    Module.HEAPU8[$2] =  y & 0xff;
+	    Module.HEAPU8[$2+1] = (y >> 8) & 0xff;
+	    Module.HEAPU8[$2+2] = (y >> 16) & 0xff;
+	    Module.HEAPU8[$2+3] = (y >> 24) & 0xff;
+	  }
+	  else if (event.type == 11) { // mouse leave
+
+	    Module.HEAPU8[$0] =  event.id & 0xff;
+	    Module.HEAPU8[$0+1] = (event.id >> 8) & 0xff;
+	    Module.HEAPU8[$0+2] = (event.id >> 16) & 0xff;
+	    Module.HEAPU8[$0+3] = (event.id >> 24) & 0xff;
+	  }
+	  else if (event.type == 12) { // keyboard enter (focus in)
+
+	    Module.HEAPU8[$0] =  event.id & 0xff;
+	    Module.HEAPU8[$0+1] = (event.id >> 8) & 0xff;
+	    Module.HEAPU8[$0+2] = (event.id >> 16) & 0xff;
+	    Module.HEAPU8[$0+3] = (event.id >> 24) & 0xff;
+	  }
+	  else if (event.type == 13) { // keyboard leave (focus out)
+
+	    Module.HEAPU8[$0] =  event.id & 0xff;
+	    Module.HEAPU8[$0+1] = (event.id >> 8) & 0xff;
+	    Module.HEAPU8[$0+2] = (event.id >> 16) & 0xff;
+	    Module.HEAPU8[$0+3] = (event.id >> 24) & 0xff;
+	  }
 	  
 	  return event.type;
 	}
@@ -2946,6 +3212,66 @@ int wl_display_dispatch(struct wl_display * display) {
 
       send_event(&pointer, "motion", 0, arg2, arg3);
     }
+    else if (event_type == 10) { // mouseenter
+
+      for (int i = 0; i < NB_SURFACE_MAX; ++i) {
+
+	if (surfaces[i].id == arg1) {
+	  
+	  struct wl_wurface * surface = &surfaces[i];
+
+	  send_event(&pointer, "enter", 0, surface, arg2, arg3);
+
+	  break;
+	}
+      }
+    }
+    else if (event_type == 11) { // mouseleave
+
+      for (int i = 0; i < NB_SURFACE_MAX; ++i) {
+
+	if (surfaces[i].id == arg1) {
+	  
+	  struct wl_wurface * surface = &surfaces[i];
+	  
+	  send_event(&pointer, "leave", 0, surface);
+
+	  break;
+	}
+      }
+    }
+    else if (event_type == 12) { // focus in
+
+      for (int i = 0; i < NB_SURFACE_MAX; ++i) {
+
+	if (surfaces[i].id == arg1) {
+	  
+	  struct wl_wurface * surface = &surfaces[i];
+
+	  ++keyboard.serial;
+	  
+	  send_event(&keyboard, "enter", keyboard.serial, surface, NULL);
+
+	  break;
+	}
+      }
+    }
+    else if (event_type == 13) { // focus out
+
+      for (int i = 0; i < NB_SURFACE_MAX; ++i) {
+
+	if (surfaces[i].id == arg1) {
+	  
+	  struct wl_wurface * surface = &surfaces[i];
+
+	  ++keyboard.serial;
+	  
+	  send_event(&keyboard, "leave", keyboard.serial, surface);
+
+	  break;
+	}
+      }
+    }
     else if (event_type == 0) {
 
       break;
@@ -2968,7 +3294,17 @@ wl_display_dispatch_pending(struct wl_display *display) {
 int
 wl_display_prepare_read(struct wl_display *display) {
 
-  return 0;
+  int ret = EM_ASM_INT({
+
+      if ( ('wayland' in Module) && (Module['wayland'].events.length > 0) ) {
+
+	return -1;
+      }
+
+      return 0;
+    });
+	  
+  return ret;
 }
 
 int
@@ -3214,6 +3550,17 @@ xkb_keysym_t
 xkb_state_key_get_one_sym(struct xkb_state *state, xkb_keycode_t key) {
 
   return key;
+}
+
+int
+xkb_state_key_get_syms(struct xkb_state *state, xkb_keycode_t key,
+                       const xkb_keysym_t **syms_out) {
+
+  latest_keysym = xkb_state_key_get_one_sym(state, key);
+
+  *syms_out = &latest_keysym;
+
+  return 1;
 }
 
 int
