@@ -18,7 +18,7 @@
 #include <xkbcommon/xkbcommon-compose.h>
 
 #define printf(...)
-//#define emscripten_log(...)
+#define emscripten_log(...)
 
 #define XDG_WM_BASE_VERSION 4
 #define WL_SEAT_VERSION     8
@@ -185,17 +185,7 @@ struct wl_data_device {
   struct wl_proxy proxy;
 };
 
-struct wl_data_offer {
-
-  struct wl_proxy proxy;
-};
-
 struct zwp_primary_selection_device_manager_v1 {
-
-  struct wl_proxy proxy;
-};
-
-struct zwp_primary_selection_source_v1 {
 
   struct wl_proxy proxy;
 };
@@ -203,14 +193,11 @@ struct zwp_primary_selection_source_v1 {
 struct zwp_primary_selection_device_v1 {
 
   struct wl_proxy proxy;
-
-  struct zwp_primary_selection_source_v1 * source;
 };
 
-struct zwp_primary_selection_offer_v1 {
+struct zwp_primary_selection_source_v1 {
 
   struct wl_proxy proxy;
-  struct zwp_primary_selection_device_v1 * device;
 };
 
 static struct wl_display display = {
@@ -344,22 +331,6 @@ struct args_uoa {
   uint32_t arg1;
   void * arg2;
   void * arg3;
-};
-
-struct args_n {
-
-  void * arg1;
-};
-
-struct args_s {
-
-  char * arg1;
-};
-
-struct args_sh {
-  
-  char * arg1;
-  uint32_t arg2;
 };
 
 void send_event(struct wl_proxy * proxy, const char * name, ...) {
@@ -554,31 +525,6 @@ void send_event(struct wl_proxy * proxy, const char * name, ...) {
 	args->arg1 = va_arg(ap, uint32_t);
 	args->arg2 = va_arg(ap, void *);
 	args->arg3 = va_arg(ap, void *);
-      }
-      else if (strcmp(interface->events[i].signature+offset, "n") == 0) {
-
-	struct args_n * args = (struct args_n *)malloc(sizeof(struct args_n));
-
-	display.event_queue[display.head].args = args;
-
-	args->arg1 = va_arg(ap, void *);
-      }
-      else if (strcmp(interface->events[i].signature+offset, "s") == 0) {
-
-	struct args_s * args = (struct args_s *)malloc(sizeof(struct args_s));
-
-	display.event_queue[display.head].args = args;
-
-	args->arg1 = va_arg(ap, char *);
-      }
-      else if (strcmp(interface->events[i].signature+offset, "sh") == 0) {
-
-	struct args_sh * args = (struct args_sh *)malloc(sizeof(struct args_sh));
-
-	display.event_queue[display.head].args = args;
-
-	args->arg1 = va_arg(ap, char *);
-	args->arg2 = va_arg(ap, uint32_t);
       }
       else if (interface->events[i].signature[offset] == 0) {
 
@@ -1054,33 +1000,6 @@ int wl_display_roundtrip(struct wl_display * display) {
 	    
 	      free(a);
 	    }
-	  }
-	  else if (strcmp(interface->events[i].signature+offset, "n") == 0) {
-
-	    void (*listener)(void *, struct wl_proxy *, void *) = (void (*)(void *, struct wl_proxy *, void *))display->event_queue[display->tail].proxy->listeners[i];
-
-	    struct args_n * args = (struct args_n * )display->event_queue[display->tail].args;
-
-	    if (listener)
-	      (*listener)(display->event_queue[display->tail].proxy->data, display->event_queue[display->tail].proxy, args->arg1);
-	  }
-	  else if (strcmp(interface->events[i].signature+offset, "s") == 0) {
-
-	    void (*listener)(void *, struct wl_proxy *, void *) = (void (*)(void *, struct wl_proxy *, void *))display->event_queue[display->tail].proxy->listeners[i];
-
-	    struct args_s * args = (struct args_s * )display->event_queue[display->tail].args;
-
-	    if (listener)
-	      (*listener)(display->event_queue[display->tail].proxy->data, display->event_queue[display->tail].proxy, args->arg1);
-	  }
-	  else if (strcmp(interface->events[i].signature+offset, "sh") == 0) {
-
-	    void (*listener)(void *, struct wl_proxy *, void *, uint32_t) = (void (*)(void *, struct wl_proxy *, void *, uint32_t))display->event_queue[display->tail].proxy->listeners[i];
-
-	    struct args_sh * args = (struct args_sh * )display->event_queue[display->tail].args;
-
-	    if (listener)
-	      (*listener)(display->event_queue[display->tail].proxy->data, display->event_queue[display->tail].proxy, args->arg1, args->arg2);
 	  }
 	  else if (interface->events[i].signature[offset] == 0) {
 
@@ -1835,16 +1754,6 @@ static struct wl_data_device data_device = {
   },
 };
 
-static struct wl_data_offer data_offer = {
-
-  .proxy = {
-    
-    .version = 0,
-    .wl_display = &display,
-    .interface = &wl_data_offer_interface,
-  },
-};
-
 static struct zwp_primary_selection_device_manager_v1 primary_selection_device_manager = {
 
   .proxy = {
@@ -1872,16 +1781,6 @@ static struct zwp_primary_selection_source_v1 primary_selection_source = {
     .version = 0,
     .wl_display = &display,
     .interface = &zwp_primary_selection_source_v1_interface,
-  },
-};
-
-static struct zwp_primary_selection_offer_v1 primary_data_offer = {
-
-  .proxy = {
-    
-    .version = 0,
-    .wl_display = &display,
-    .interface = &zwp_primary_selection_offer_v1_interface,
   },
 };
 
@@ -2070,9 +1969,9 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
 	      "event.preventDefault();"
 	      "event.stopPropagation();"
-      
-	      "console.log(\"Mouse Down\");"
-	      "console.log(event);"
+
+	      //console.log("Mouse Down");
+	      //console.log(event);
 	      //console.log("id="+id);
 	      
 	      "Module['wayland'].events.push({"
@@ -2936,43 +2835,6 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
     return (struct wl_proxy *)&primary_selection_source;
   }
-  else if ( (strcmp(proxy->interface->name, "zwp_primary_selection_device_v1") == 0) &&
-       (opcode == ZWP_PRIMARY_SELECTION_DEVICE_V1_SET_SELECTION) ) {
-
-    va_list ap;
-
-    va_start(ap, flags);
-
-    struct zwp_primary_selection_source_v1 * source = (struct zwp_primary_selection_source_v1 *)va_arg(ap, void *);
-
-    uint32_t serial = va_arg(ap, uint32_t);
-    
-    va_end(ap);
-
-    ((struct zwp_primary_selection_device_v1 *) proxy)->source = source;
-
-    emscripten_log(EM_LOG_CONSOLE, "ZWP_PRIMARY_SELECTION_DEVICE_V1_SET_SELECTION: %p", source);
-  }
-  else if ( (strcmp(proxy->interface->name, "zwp_primary_selection_offer_v1") == 0) &&
-       (opcode == ZWP_PRIMARY_SELECTION_OFFER_V1_RECEIVE) ) {
-    
-    va_list ap;
-
-    va_start(ap, flags);
-
-    char * mime = va_arg(ap, char *);
-    int fd = va_arg(ap, int);
-    
-    va_end(ap);
-
-    struct zwp_primary_selection_offer_v1 * offer = (struct zwp_primary_selection_offer_v1 *)proxy;
-    struct zwp_primary_selection_device_v1 * device = offer->device;
-
-    emscripten_log(EM_LOG_CONSOLE, "ZWP_PRIMARY_SELECTION_OFFER_V1_RECEIVE: %s %d -> %p %p", mime, fd, device, device->source);
-
-    send_event(device->source, "send", mime, fd);
-  }
-  
 
   return NULL;
 }
@@ -3300,22 +3162,10 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
     emscripten_run_fun(wl_pointer_handle);
     }
     else if (strcmp(proxy->interface->name, "wl_data_device") == 0) {
-
-      send_event(proxy, "data_offer", &data_offer); 
-    }
-    else if (strcmp(proxy->interface->name, "wl_data_offer") == 0) {
-
-      send_event(proxy, "offer", "text/plain"); 
+      //TODO
     }
     else if (strcmp(proxy->interface->name, "zwp_primary_selection_device_v1") == 0) {
-
-      primary_data_offer.device = (struct zwp_primary_selection_device_v1 *)proxy;
-
-      send_event(proxy, "data_offer", &primary_data_offer);
-    }
-    else if (strcmp(proxy->interface->name, "zwp_primary_selection_offer_v1") == 0) {
-
-      send_event(proxy, "offer", "text/plain"); 
+      //TODO
     }
   }
 

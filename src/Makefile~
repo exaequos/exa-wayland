@@ -48,7 +48,7 @@ build/viewporter-client-protocol-code.h: /usr/share/wayland-protocols/stable/vie
 	wayland-scanner private-code < $^ > $@
 
 build/primary-selection-unstable-v1-client-protocol.h: /usr/share/wayland-protocols/unstable/primary-selection/primary-selection-unstable-v1.xml
-	wayland-scanner client-header < $^ > $@
+	wayland-scanner private-code < $^ > $@
 
 clean:
 	rm -rf build/*
