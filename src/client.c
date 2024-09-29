@@ -18,7 +18,7 @@
 #include <xkbcommon/xkbcommon-compose.h>
 
 #define printf(...)
-//#define emscripten_log(...)
+#define emscripten_log(...)
 
 #define XDG_WM_BASE_VERSION 4
 #define WL_SEAT_VERSION     8
@@ -180,14 +180,21 @@ struct wl_data_device_manager {
   struct wl_proxy proxy;
 };
 
+struct wl_data_source {
+
+  struct wl_proxy proxy;
+};
+
 struct wl_data_device {
 
   struct wl_proxy proxy;
+  struct wl_data_source * source;
 };
 
 struct wl_data_offer {
 
   struct wl_proxy proxy;
+  struct wl_data_device * device;
 };
 
 struct zwp_primary_selection_device_manager_v1 {
@@ -203,7 +210,6 @@ struct zwp_primary_selection_source_v1 {
 struct zwp_primary_selection_device_v1 {
 
   struct wl_proxy proxy;
-
   struct zwp_primary_selection_source_v1 * source;
 };
 
@@ -1835,6 +1841,16 @@ static struct wl_data_device data_device = {
   },
 };
 
+static struct wl_data_offer data_source = {
+
+  .proxy = {
+    
+    .version = 0,
+    .wl_display = &display,
+    .interface = &wl_data_source_interface,
+  },
+};
+
 static struct wl_data_offer data_offer = {
 
   .proxy = {
@@ -2071,8 +2087,8 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 	      "event.preventDefault();"
 	      "event.stopPropagation();"
       
-	      "console.log(\"Mouse Down\");"
-	      "console.log(event);"
+      //"console.log(\"Mouse Down\");"
+      //"console.log(event);"
 	      //console.log("id="+id);
 	      
 	      "Module['wayland'].events.push({"
@@ -2924,10 +2940,154 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
   else if ( (strcmp(proxy->interface->name, "wl_data_device_manager") == 0) &&
        (opcode == WL_DATA_DEVICE_MANAGER_GET_DATA_DEVICE) ) {
 
+    const char * fun =
+
+      "let bc_name = \"wayland_data_selection.\"+Module.getpid()+\".peer\";"
+      
+      "if (!(bc_name in Module['bc_channels'])) {"
+      
+      "  let bc = Module.get_broadcast_channel(bc_name);"
+      
+      "  bc.onmessage = (messageEvent) => {"
+
+      //"    console.log(messageEvent);"
+
+      "    let msg2 = messageEvent.data;"
+
+      "    if (msg2.buf[0] == (68|0x80)) {"
+
+      "       let new_fd = msg2.buf[20] | (msg2.buf[21] << 8) | (msg2.buf[22] << 16) |  (msg2.buf[23] << 24);"
+
+      "       navigator.clipboard.readText().then(function(data) {"
+      //"       console.log(\"Clipboard read: \", data);"
+      
+      "            Module['wayland'].events.push({"
+
+		      "'type': 15," // data receive
+                      "'fd': new_fd,"
+                      "'data': data"
+	            "});"
+
+	            "setTimeout(() => {"
+
+		        "if ( (Module['fd_table'][0x7e000000].notif_select) && (Module['wayland'].events.length > 0) ) {"
+
+		            "Module['fd_table'][0x7e000000].notif_select(0x7e000000, 0);"
+		         "}"
+		    
+		        "}, 0);"
+      "});"
+     
+      "     }"
+      "  };"
+      "}";
+	  
+    static int get_device_handle = -1;
+
+    if (get_device_handle < 0)
+      get_device_handle = emscripten_load_fun(fun, "v");
+  
+    emscripten_run_fun(get_device_handle);
+
     return (struct wl_proxy *)&data_device;
   }
   else if ( (strcmp(proxy->interface->name, "zwp_primary_selection_device_manager_v1") == 0) &&
        (opcode == ZWP_PRIMARY_SELECTION_DEVICE_MANAGER_V1_GET_DEVICE) ) {
+
+    const char * fun = 
+
+      "let bc_name = \"wayland_primary_selection.peer\";"
+
+      "Module.wayland_ps_pid = -1;"
+      
+      "if (!(bc_name in Module['bc_channels'])) {"
+      
+      "  let bc = Module.get_broadcast_channel(bc_name);"
+      
+      "  bc.onmessage = (messageEvent) => {"
+      //"     console.log(messageEvent);"
+      
+      "     if (messageEvent.data.type == \"selection\") {" // another wayland client performed selection
+      "        Module.wayland_primary_selection = 0;"
+      "        Module.wayland_ps_pid = messageEvent.data.pid;"
+      "     }"
+      "     else if (messageEvent.data.type == \"receive\") {" // another wayland client performed receive
+
+      "        if (Module.wayland_primary_selection) {" // if our selection is active
+
+                  "Module['wayland'].events.push({"
+
+		     "'type': 14," // ps receive
+                     "'fd': messageEvent.data.fd"
+		
+	         "});"
+
+	         "setTimeout(() => {"
+
+		    "if ( (Module['fd_table'][0x7e000000].notif_select) && (Module['wayland'].events.length > 0) ) {"
+
+		    "Module['fd_table'][0x7e000000].notif_select(0x7e000000, 0);"
+		    "}"
+		    
+		  "}, 0);"
+      "        }"
+      "     }"
+      "  };"
+      "}"
+
+      "bc_name = \"wayland_primary_selection.\"+Module.getpid()+\".peer\";"
+      
+      "if (!(bc_name in Module['bc_channels'])) {"
+      
+      "  let bc = Module.get_broadcast_channel(bc_name);"
+      
+      "  bc.onmessage = (messageEvent) => {"
+
+      //"    console.log(messageEvent);"
+
+      "    let msg2 = messageEvent.data;"
+
+      "    if (msg2.buf[0] == (68|0x80)) {"
+
+      "       let new_fd = msg2.buf[20] | (msg2.buf[21] << 8) | (msg2.buf[22] << 16) |  (msg2.buf[23] << 24);"
+
+      "       if (Module.wayland_primary_selection) {"
+      
+      "            Module['wayland'].events.push({"
+
+		      "'type': 14," // ps receive
+                      "'fd': new_fd"
+		
+	            "});"
+
+	            "setTimeout(() => {"
+
+		        "if ( (Module['fd_table'][0x7e000000].notif_select) && (Module['wayland'].events.length > 0) ) {"
+
+		            "Module['fd_table'][0x7e000000].notif_select(0x7e000000, 0);"
+		         "}"
+		    
+		        "}, 0);"
+      "        }"
+      "        else {"
+      //"           console.log(\"Wayland ps pid = \"+Module.wayland_ps_pid);"
+      "           const bc_name2 = \"wayland_primary_selection.peer\";"
+      "           let bc2 = Module.get_broadcast_channel(bc_name2);"
+      "           bc2.postMessage({"
+                         "'type':\"receive\","
+                         "'fd':new_fd"
+                     "})"
+      "        }"
+      "     }"
+      "  };"
+      "}";
+	  
+    static int primary_get_device_handle = -1;
+
+    if (primary_get_device_handle < 0)
+      primary_get_device_handle = emscripten_load_fun(fun, "v");
+  
+    emscripten_run_fun(primary_get_device_handle);
 
     return (struct wl_proxy *)&primary_selection_device;
   }
@@ -2952,6 +3112,23 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
     ((struct zwp_primary_selection_device_v1 *) proxy)->source = source;
 
     emscripten_log(EM_LOG_CONSOLE, "ZWP_PRIMARY_SELECTION_DEVICE_V1_SET_SELECTION: %p", source);
+
+    const char * fun = 
+
+      "const bc_name = \"wayland_primary_selection.peer\";"
+      "let bc = Module.get_broadcast_channel(bc_name);"
+
+      "Module.wayland_primary_selection = 1;"
+      "Module.wayland_ps_pid = Module.getpid();"
+      
+      "bc.postMessage({'type':\"selection\", 'pid': Module.getpid()});";
+	  
+    static int set_selection_handle = -1;
+
+    if (set_selection_handle < 0)
+      set_selection_handle = emscripten_load_fun(fun, "v");
+  
+    emscripten_run_fun(set_selection_handle);
   }
   else if ( (strcmp(proxy->interface->name, "zwp_primary_selection_offer_v1") == 0) &&
        (opcode == ZWP_PRIMARY_SELECTION_OFFER_V1_RECEIVE) ) {
@@ -2970,7 +3147,141 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
     emscripten_log(EM_LOG_CONSOLE, "ZWP_PRIMARY_SELECTION_OFFER_V1_RECEIVE: %s %d -> %p %p", mime, fd, device, device->source);
 
-    send_event(device->source, "send", mime, fd);
+    const char * fun = 
+
+      "let buf_size = 24;"
+	
+      "let buf2 = new Uint8Array(buf_size);"
+
+      "buf2[0] = 68;" // CLONEFD
+
+      "let pid = Module.getpid();"
+
+      // pid
+      "buf2[4] = pid & 0xff;"
+      "buf2[5] = (pid >> 8) & 0xff;"
+      "buf2[6] = (pid >> 16) & 0xff;"
+      "buf2[7] = (pid >> 24) & 0xff;"
+
+      // fd
+      "buf2[12] = $0 & 0xff;"
+      "buf2[13] = ($0 >> 8) & 0xff;"
+      "buf2[14] = ($0 >> 16) & 0xff;"
+      "buf2[15] = ($0 >> 24) & 0xff;"
+
+      "if (Module.wayland_ps_pid == -1)"
+      "   Module.wayland_ps_pid = Module.getpid();"
+
+      // pid_dest
+      "buf2[16] = Module.wayland_ps_pid & 0xff;"
+      "buf2[17] = (Module.wayland_ps_pid >> 8) & 0xff;"
+      "buf2[18] = (Module.wayland_ps_pid >> 16) & 0xff;"
+      "buf2[19] = (Module.wayland_ps_pid >> 24) & 0xff;"
+
+      "let msg = {"
+		      
+          "from: \"wayland_primary_selection.\"+Module.getpid()+\".peer\","
+	  "buf: buf2,"
+	  "len: buf_size"
+       "};"
+
+       "let bc = Module.get_broadcast_channel(\"/var/resmgr.peer\");"
+
+	 "bc.postMessage(msg);";
+	  
+    static int offer_receive_handle = -1;
+
+    if (offer_receive_handle < 0)
+      offer_receive_handle = emscripten_load_fun(fun, "vi");
+
+    emscripten_run_fun(offer_receive_handle, fd);
+  }
+  else if ( (strcmp(proxy->interface->name, "wl_data_offer") == 0) &&
+       (opcode == WL_DATA_OFFER_RECEIVE) ) {
+    
+    va_list ap;
+
+    va_start(ap, flags);
+
+    char * mime = va_arg(ap, char *);
+    int fd = va_arg(ap, int);
+    
+    va_end(ap);
+
+    struct wl_data_offer * offer = (struct wl_data_offer *)proxy;
+    struct wl_data_device * device = offer->device;
+
+    emscripten_log(EM_LOG_CONSOLE, "WL_DATA_OFFER_RECEIVE: %s %d -> %p %p", mime, fd, device, device->source);
+
+    const char * fun = 
+
+      "let buf_size = 24;"
+	
+      "let buf2 = new Uint8Array(buf_size);"
+
+      "buf2[0] = 68;" // CLONEFD
+
+      "let pid = Module.getpid();"
+
+      // pid
+      "buf2[4] = pid & 0xff;"
+      "buf2[5] = (pid >> 8) & 0xff;"
+      "buf2[6] = (pid >> 16) & 0xff;"
+      "buf2[7] = (pid >> 24) & 0xff;"
+
+      // fd
+      "buf2[12] = $0 & 0xff;"
+      "buf2[13] = ($0 >> 8) & 0xff;"
+      "buf2[14] = ($0 >> 16) & 0xff;"
+      "buf2[15] = ($0 >> 24) & 0xff;"
+
+      // pid_dest = pid
+      "buf2[16] = pid & 0xff;"
+      "buf2[17] = (pid >> 8) & 0xff;"
+      "buf2[18] = (pid >> 16) & 0xff;"
+      "buf2[19] = (pid >> 24) & 0xff;"
+
+      "let msg = {"
+		      
+          "from: \"wayland_data_selection.\"+Module.getpid()+\".peer\","
+	  "buf: buf2,"
+	  "len: buf_size"
+       "};"
+
+       "let bc = Module.get_broadcast_channel(\"/var/resmgr.peer\");"
+
+	 "bc.postMessage(msg);";
+	  
+    static int offer_receive_handle = -1;
+
+    if (offer_receive_handle < 0)
+      offer_receive_handle = emscripten_load_fun(fun, "vi");
+
+    emscripten_run_fun(offer_receive_handle, fd);
+  }
+  else if ( (strcmp(proxy->interface->name, "wl_data_device_manager") == 0) &&
+       (opcode == WL_DATA_DEVICE_MANAGER_CREATE_DATA_SOURCE) ) {
+
+    return (struct wl_proxy *)&data_source;
+  }
+  else if ( (strcmp(proxy->interface->name, "wl_data_device") == 0) &&
+       (opcode == WL_DATA_DEVICE_SET_SELECTION) ) {
+
+    va_list ap;
+
+    va_start(ap, flags);
+
+    struct wl_data_source * source = (struct wl_data_source *)va_arg(ap, void *);
+
+    uint32_t serial = va_arg(ap, uint32_t);
+    
+    va_end(ap);
+
+    ((struct wl_data_device *) proxy)->source = source;
+
+    emscripten_log(EM_LOG_CONSOLE, "WL_DATA_DEVICE_SET_SELECTION: %p", source);
+
+    send_event(source, "send", "text/plain", 0x7e000001); // reserved fd for wayland virtual pipe
   }
   
 
@@ -3301,6 +3612,8 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
     }
     else if (strcmp(proxy->interface->name, "wl_data_device") == 0) {
 
+      data_offer.device = (struct wl_data_device *)proxy;
+
       send_event(proxy, "data_offer", &data_offer); 
     }
     else if (strcmp(proxy->interface->name, "wl_data_offer") == 0) {
@@ -3503,6 +3816,32 @@ int wl_display_dispatch(struct wl_display * display) {
 	    "Module.HEAPU8[$0+2] = (event.id >> 16) & 0xff;"
 	    "Module.HEAPU8[$0+3] = (event.id >> 24) & 0xff;"
 	  "}"
+          "else if (event.type == 14) {" // ps receive
+
+	    "Module.HEAPU8[$0] =  event.fd & 0xff;"
+	    "Module.HEAPU8[$0+1] = (event.fd >> 8) & 0xff;"
+	    "Module.HEAPU8[$0+2] = (event.fd >> 16) & 0xff;"
+	    "Module.HEAPU8[$0+3] = (event.fd >> 24) & 0xff;"
+	  "}"
+          "else if (event.type == 15) {" // data receive
+
+	    "Module.HEAPU8[$0] =  event.fd & 0xff;"
+	    "Module.HEAPU8[$0+1] = (event.fd >> 8) & 0xff;"
+	    "Module.HEAPU8[$0+2] = (event.fd >> 16) & 0xff;"
+	    "Module.HEAPU8[$0+3] = (event.fd >> 24) & 0xff;"
+
+            "let len = lengthBytesUTF8(event.data)+1;"
+
+            "let ptr = Module._malloc(len);"
+
+            "Module.HEAPU8[$1] =  ptr & 0xff;"
+	    "Module.HEAPU8[$1+1] = (ptr >> 8) & 0xff;"
+	    "Module.HEAPU8[$1+2] = (ptr >> 16) & 0xff;"
+	    "Module.HEAPU8[$1+3] = (ptr >> 24) & 0xff;"
+
+            "stringToUTF8Array(event.data, Module.HEAPU8, ptr, len);"
+    
+	  "}"
 	  
 	  "return event.type;"
 	"}"
@@ -3675,6 +4014,19 @@ int wl_display_dispatch(struct wl_display * display) {
 	  break;
 	}
       }
+    }
+    else if (event_type == 14) { // ps receive
+
+      emscripten_log(EM_LOG_CONSOLE, "ps receive");
+
+      send_event(&primary_selection_source, "send", "text/plain", arg1);
+    }
+    else if (event_type == 15) { // data receive
+
+      emscripten_log(EM_LOG_CONSOLE, "data receive");
+
+      write(arg1, (const char *)arg2, strlen((const char *)arg2));
+      close(arg1);
     }
     else if (event_type == 0) {
 
