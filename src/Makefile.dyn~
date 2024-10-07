@@ -5,7 +5,7 @@ libexa-wayland.a: client.c build/xdg-shell-client-protocol.h build/xdg-decoratio
 	$(AR) rcs build/libexa-wayland.a build/client.o
 
 light:
-	$(CC) $(CFLAGS) --s SIDE_MODULE=1 client.c -c -o build/client.o -I build/
+	$(CC) $(CFLAGS) -s SIDE_MODULE=1 client.c -c -o build/client.o -I build/
 	$(AR) rcs build/libexa-wayland.a build/client.o
 
 build/wayland-client-protocol-code.h: /usr/share/wayland/wayland.xml
