@@ -18,7 +18,7 @@
 #include <xkbcommon/xkbcommon-compose.h>
 
 #define printf(...)
-#define emscripten_log(...)
+//#define emscripten_log(...)
 
 #define XDG_WM_BASE_VERSION 4
 #define WL_SEAT_VERSION     8
@@ -2462,6 +2462,42 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
       strcpy(((struct xdg_toplevel *)proxy)->title, title);
     else
       ((struct xdg_toplevel *)proxy)->title[0] = 0;
+
+    const char * fun =
+	
+      //"console.log($0);"
+      //"console.log(Module['surfaces'][$0-1]);"
+
+	  "let w = Module['surfaces'][$0-1].parentElement;"
+
+      //"console.log(w);"
+
+	  "let deco = w.firstElementChild;"
+
+      //"console.log(deco);"
+ 
+          "if (deco) {"
+
+              "let titles = deco.getElementsByClassName('title');"
+
+              "if (titles && (titles.length > 0)) {"
+
+                "let title = titles[0];"
+
+                "if (title) {"
+
+                    "title.innerHTML = UTF8ToString($1);"
+                "}"
+              "}"
+          "}";
+
+      static int toplevel_set_title_handle = -1;
+
+    if (toplevel_set_title_handle < 0)
+      toplevel_set_title_handle = emscripten_load_fun(fun, "vip");
+  
+    emscripten_run_fun(toplevel_set_title_handle, ((struct xdg_toplevel *)proxy)->xdg_surface->wl_surface->id, ((struct xdg_toplevel *)proxy)->title);
+    
   }
   else if ( (strcmp(proxy->interface->name, "xdg_toplevel") == 0) &&
        (opcode == XDG_TOPLEVEL_DESTROY) ) {
@@ -2716,7 +2752,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
       
       printf("ZXDG_TOPLEVEL_DECORATION_V1_SET_MODE: decoration=%p toplevel=%p xdg_surface=%p wl_surface=%p\n", proxy, toplevel, toplevel->xdg_surface, toplevel->xdg_surface->wl_surface);
 
-      char defaultInnerHTMLDeco[] = "<div id='innerDeco' style='height:25px;background-color:#ddfffb;display:flex;align-items:center'><img id='close' src='/netfs/usr/share/close_icon.png' style='width:15px;height:13px;margin-left:5px;user-select:none'></img><img id='min' src='/netfs/usr/share/min_icon.png' style='width:15px;height:15px;margin-left:5px;user-select:none'></img><span id='title' style='margin:auto; font-family:sans-serif; user-select:none'>[TITLE]</span></div>\0";
+      char defaultInnerHTMLDeco[] = "<div id='innerDeco' style='height:25px;background-color:#ddfffb;display:flex;align-items:center'><img id='close' src='/netfs/usr/share/close_icon.png' style='width:15px;height:13px;margin-left:5px;user-select:none'></img><img id='min' src='/netfs/usr/share/min_icon.png' style='width:15px;height:15px;margin-left:5px;user-select:none'></img><span class='title' style='margin:auto; font-family:sans-serif; user-select:none'>[TITLE]</span></div>\0";
 
       char * innerHTMLDeco = &defaultInnerHTMLDeco[0];
 
@@ -3283,6 +3319,135 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
     send_event(source, "send", "text/plain", 0x7e000001); // reserved fd for wayland virtual pipe
   }
+  else if ( (strcmp(proxy->interface->name, "xdg_toplevel") == 0) &&
+       (opcode == XDG_TOPLEVEL_SET_MAXIMIZED) ) {
+
+    emscripten_log(EM_LOG_CONSOLE, "XDG_TOPLEVEL_SET_MAXIMIZED");
+    
+    int width, height;
+      
+    /*EM_ASM({*/
+
+    const char * fun =
+
+	"const w = window.devicePixelRatio*window.parent.innerWidth;" // window.innerWidth return 0
+	"const h = window.devicePixelRatio*window.parent.innerHeight;"
+
+	"Module.HEAPU8[$0] =  w & 0xff;"
+	"Module.HEAPU8[$0+1] = (w >> 8) & 0xff;"
+	"Module.HEAPU8[$0+2] = (w >> 16) & 0xff;"
+	"Module.HEAPU8[$0+3] = (w >> 24) & 0xff;"
+
+	"Module.HEAPU8[$1] =  h & 0xff;"
+	"Module.HEAPU8[$1+1] = (h >> 8) & 0xff;"
+	"Module.HEAPU8[$1+2] = (h >> 16) & 0xff;"
+        "Module.HEAPU8[$1+3] = (h >> 24) & 0xff;"
+
+        "let canvas = Module['surfaces'][$2-1];"
+
+	"canvas.width = w;"
+        "canvas.height = h;"
+
+        "canvas.style.width = w / window.devicePixelRatio + \"px\";"
+        "canvas.style.height = h / window.devicePixelRatio + \"px\";"
+
+        "if (canvas.parentElement) {"
+	    "canvas.parentElement.style.width = w / window.devicePixelRatio + \"px\";"
+        "}";
+
+    /*}, &width, &height);*/
+
+    static int set_maximized_handle = -1;
+
+    if (set_maximized_handle < 0)
+      set_maximized_handle = emscripten_load_fun(fun, "vppi");
+  
+    emscripten_run_fun(set_maximized_handle, &width, &height, ((struct xdg_toplevel *)proxy)->xdg_surface->wl_surface->id);
+
+    emscripten_log(EM_LOG_CONSOLE, "XDG_TOPLEVEL_SET_MAXIMIZED: w=%d h=%d", width, height);
+
+    struct wl_array * states;
+
+    states = (struct wl_array *)malloc(sizeof(struct wl_array));
+
+    states->size = 1 * sizeof(uint32_t);
+
+    states->data = malloc(states->size);
+
+    ((uint32_t *)(states->data))[0] = XDG_TOPLEVEL_STATE_MAXIMIZED;
+
+    send_event(proxy, "configure", width, height, states);
+
+    // TODO event not received immediately
+    send_event(((struct xdg_toplevel *)proxy)->xdg_surface, "configure", 0);
+  }
+  else if ( (strcmp(proxy->interface->name, "xdg_toplevel") == 0) &&
+       (opcode == XDG_TOPLEVEL_SET_FULLSCREEN) ) {
+
+    emscripten_log(EM_LOG_CONSOLE, "XDG_TOPLEVEL_SET_FULLSCREEN");
+
+    int width, height;
+      
+    /*EM_ASM({*/
+
+    const char * fun =
+
+	"const w = window.devicePixelRatio*window.parent.innerWidth;" // window.innerWidth return 0
+	"const h = window.devicePixelRatio*window.parent.innerHeight;"
+
+	"Module.HEAPU8[$0] =  w & 0xff;"
+	"Module.HEAPU8[$0+1] = (w >> 8) & 0xff;"
+	"Module.HEAPU8[$0+2] = (w >> 16) & 0xff;"
+	"Module.HEAPU8[$0+3] = (w >> 24) & 0xff;"
+
+	"Module.HEAPU8[$1] =  h & 0xff;"
+	"Module.HEAPU8[$1+1] = (h >> 8) & 0xff;"
+	"Module.HEAPU8[$1+2] = (h >> 16) & 0xff;"
+        "Module.HEAPU8[$1+3] = (h >> 24) & 0xff;"
+
+        "let canvas = Module['surfaces'][$2-1];"
+
+	"canvas.width = w;"
+        "canvas.height = h;"
+
+        "canvas.style.width = w / window.devicePixelRatio + \"px\";"
+        "canvas.style.height = h / window.devicePixelRatio + \"px\";"
+
+        "if (canvas.parentElement) {"
+	    "canvas.parentElement.style.width = w / window.devicePixelRatio + \"px\";"
+            "canvas.parentElement.style.left = '0px';"
+            "canvas.parentElement.style.top = '0px';"
+
+            // Hide decoration
+            "canvas.parentElement.firstChild.style.display = 'none';"
+        "}";
+
+    /*}, &width, &height);*/
+
+    static int set_fullscreen_handle = -1;
+
+    if (set_fullscreen_handle < 0)
+      set_fullscreen_handle = emscripten_load_fun(fun, "vppi");
+  
+    emscripten_run_fun(set_fullscreen_handle, &width, &height, ((struct xdg_toplevel *)proxy)->xdg_surface->wl_surface->id);
+
+    emscripten_log(EM_LOG_CONSOLE, "XDG_TOPLEVEL_SET_FULLSCREEN: w=%d h=%d", width, height);
+
+    struct wl_array * states;
+
+    states = (struct wl_array *)malloc(sizeof(struct wl_array));
+
+    states->size = 1 * sizeof(uint32_t);
+
+    states->data = malloc(states->size);
+
+    ((uint32_t *)(states->data))[0] = XDG_TOPLEVEL_STATE_FULLSCREEN;
+
+    send_event(proxy, "configure", width, height, states);
+
+    // TODO event not received immediately
+    send_event(((struct xdg_toplevel *)proxy)->xdg_surface, "configure", 0);
+  }
   
 
   return NULL;
@@ -3585,16 +3750,16 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
 
       static int wl_keyboard_handle = -1;
 
-    if (wl_keyboard_handle < 0)
-      wl_keyboard_handle = emscripten_load_fun(fun, "v");
+      if (wl_keyboard_handle < 0)
+        wl_keyboard_handle = emscripten_load_fun(fun, "v");
   
-    emscripten_run_fun(wl_keyboard_handle);
-      
+      emscripten_run_fun(wl_keyboard_handle);
+    
       int keymap_fd = open("/dev/shm/keymap", O_RDWR);
-
+    
       send_event(proxy, "keymap", WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, keymap_fd, 0);
 
-      send_event(proxy, "repeat_info", KEYBOARD_RATE, KEYBOARD_DELAY); 
+      send_event(proxy, "repeat_info", KEYBOARD_RATE, KEYBOARD_DELAY);
     }
     else if (strcmp(proxy->interface->name, "wl_pointer") == 0) {
 

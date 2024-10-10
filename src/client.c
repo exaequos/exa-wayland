@@ -3321,6 +3321,8 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
   }
   else if ( (strcmp(proxy->interface->name, "xdg_toplevel") == 0) &&
        (opcode == XDG_TOPLEVEL_SET_MAXIMIZED) ) {
+
+    emscripten_log(EM_LOG_CONSOLE, "XDG_TOPLEVEL_SET_MAXIMIZED");
     
     int width, height;
       
@@ -3375,6 +3377,76 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
     ((uint32_t *)(states->data))[0] = XDG_TOPLEVEL_STATE_MAXIMIZED;
 
     send_event(proxy, "configure", width, height, states);
+
+    // TODO event not received immediately
+    send_event(((struct xdg_toplevel *)proxy)->xdg_surface, "configure", 0);
+  }
+  else if ( (strcmp(proxy->interface->name, "xdg_toplevel") == 0) &&
+       (opcode == XDG_TOPLEVEL_SET_FULLSCREEN) ) {
+
+    emscripten_log(EM_LOG_CONSOLE, "XDG_TOPLEVEL_SET_FULLSCREEN");
+
+    int width, height;
+      
+    /*EM_ASM({*/
+
+    const char * fun =
+
+	"const w = window.devicePixelRatio*window.parent.innerWidth;" // window.innerWidth return 0
+	"const h = window.devicePixelRatio*window.parent.innerHeight;"
+
+	"Module.HEAPU8[$0] =  w & 0xff;"
+	"Module.HEAPU8[$0+1] = (w >> 8) & 0xff;"
+	"Module.HEAPU8[$0+2] = (w >> 16) & 0xff;"
+	"Module.HEAPU8[$0+3] = (w >> 24) & 0xff;"
+
+	"Module.HEAPU8[$1] =  h & 0xff;"
+	"Module.HEAPU8[$1+1] = (h >> 8) & 0xff;"
+	"Module.HEAPU8[$1+2] = (h >> 16) & 0xff;"
+        "Module.HEAPU8[$1+3] = (h >> 24) & 0xff;"
+
+        "let canvas = Module['surfaces'][$2-1];"
+
+	"canvas.width = w;"
+        "canvas.height = h;"
+
+        "canvas.style.width = w / window.devicePixelRatio + \"px\";"
+        "canvas.style.height = h / window.devicePixelRatio + \"px\";"
+
+        "if (canvas.parentElement) {"
+	    "canvas.parentElement.style.width = w / window.devicePixelRatio + \"px\";"
+            "canvas.parentElement.style.left = '0px';"
+            "canvas.parentElement.style.top = '0px';"
+
+            // Hide decoration
+            "canvas.parentElement.firstChild.style.display = 'none';"
+        "}";
+
+    /*}, &width, &height);*/
+
+    static int set_fullscreen_handle = -1;
+
+    if (set_fullscreen_handle < 0)
+      set_fullscreen_handle = emscripten_load_fun(fun, "vppi");
+  
+    emscripten_run_fun(set_fullscreen_handle, &width, &height, ((struct xdg_toplevel *)proxy)->xdg_surface->wl_surface->id);
+
+    emscripten_log(EM_LOG_CONSOLE, "XDG_TOPLEVEL_SET_FULLSCREEN: w=%d h=%d", width, height);
+
+    struct wl_array * states;
+
+    states = (struct wl_array *)malloc(sizeof(struct wl_array));
+
+    states->size = 1 * sizeof(uint32_t);
+
+    states->data = malloc(states->size);
+
+    ((uint32_t *)(states->data))[0] = XDG_TOPLEVEL_STATE_FULLSCREEN;
+
+    send_event(proxy, "configure", width, height, states);
+
+    // TODO event not received immediately
+    send_event(((struct xdg_toplevel *)proxy)->xdg_surface, "configure", 0);
   }
   
 
@@ -4566,4 +4638,104 @@ wl_egl_window_resize(struct wl_egl_window *egl_window,
 		     int width, int height,
 		     int dx, int dy) {
 
+  emscripten_log(EM_LOG_CONSOLE, "--> wl_egl_window_resize: egl_window=%d w=%d h=%d dx=%d dy=%d", egl_window, width, height, dx, dy);
+      
+  /*EM_ASM({*/
+
+  const char * fun =
+
+    "const w = $0;"
+    "const h = $1;"
+
+    "let canvas = Module['surfaces'][$2-1];"
+
+    "canvas.width = w;"
+    "canvas.height = h;"
+
+    "canvas.style.width = w / window.devicePixelRatio + \"px\";"
+    "canvas.style.height = h / window.devicePixelRatio + \"px\";"
+
+    "if (canvas.parentElement) {"
+      "canvas.parentElement.style.width = w / window.devicePixelRatio + \"px\";"
+
+      "const fw = window.devicePixelRatio*window.parent.innerWidth;"
+      "const fh = window.devicePixelRatio*window.parent.innerHeight;"
+
+      "if ( (w != fw) || (h != fh) ) {"
+        // Show decoration
+        "canvas.parentElement.firstChild.style.display = 'block';"
+      "}"
+      "else {"
+        "canvas.parentElement.firstChild.style.display = 'none';"
+      "}"
+    "}";
+
+  /*}, &width, &height);*/
+
+  static int window_resize_handle = -1;
+
+  if (window_resize_handle < 0)
+    window_resize_handle = emscripten_load_fun(fun, "viii");
+  
+  emscripten_run_fun(window_resize_handle, width, height, egl_window);
+
+  struct wl_array * states;
+
+  states = (struct wl_array *)malloc(sizeof(struct wl_array));
+
+  states->size = 1 * sizeof(uint32_t);
+
+  states->data = malloc(states->size);
+
+  ((uint32_t *)(states->data))[0] = XDG_TOPLEVEL_STATE_RESIZING;
+
+  int i;
+  
+  for (i = 0; i < NB_SURFACE_MAX; ++i) {
+
+    if (surfaces[i].id == egl_window) {
+	  
+      break;
+    }
+  }
+
+  if (i < NB_SURFACE_MAX) {
+
+    emscripten_log(EM_LOG_CONSOLE, "--> wl_egl_window_resize: wl_surface found %d", i);
+
+    int j;
+
+    for (j = 0; j < NB_SURFACE_MAX; ++j) {
+
+      if (xdg_surfaces[j].wl_surface == &surfaces[i]) {
+
+	break;
+      }
+    }
+
+    if (j < NB_SURFACE_MAX) {
+
+      emscripten_log(EM_LOG_CONSOLE, "--> wl_egl_window_resize: xdg_surface found %d", j);
+
+      int k;
+
+      for (k = 0; k < NB_SURFACE_MAX; ++k) {
+
+	if (xdg_toplevels[k].xdg_surface == &xdg_surfaces[j]) {
+
+	  break;
+	}
+      }
+
+      if (k < NB_SURFACE_MAX) {
+
+	emscripten_log(EM_LOG_CONSOLE, "--> wl_egl_window_resize: send event: %d %d %d %d %d ", i , j, k, width, height);
+
+	send_event(&xdg_toplevels[k], "configure", width, height, states);
+
+	// TODO event not received immediately
+	send_event(xdg_toplevels[k].xdg_surface, "configure", 0);
+      }
+    }
+  }
 }
