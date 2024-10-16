@@ -683,13 +683,13 @@ struct wl_display * wl_display_connect(const char *name) {
 
 	      "const ctx = canvas.getContext('2d');"
 
-	      "if ( (canvas.width != request.width) || (canvas.height = request.height) ) {"
-	      "canvas.width = request.width;"
-	      "canvas.height = request.height;"
+	      "if ( (canvas.width != request.width) || (canvas.height != request.height) ) {"
+	        "canvas.width = request.width;"
+	        "canvas.height = request.height;"
 
-	      "canvas.style.width = request.width / window.devicePixelRatio + \"px\";"
-	      "canvas.style.height = request.height / window.devicePixelRatio + \"px\";"
-	      "canvas.parentElement.style.width = request.width / window.devicePixelRatio + \"px\";"
+	        "canvas.style.width = request.width/window.devicePixelRatio + \"px\";"
+	        "canvas.style.height = request.height/window.devicePixelRatio + \"px\";"
+	        "canvas.parentElement.style.width = request.width/window.devicePixelRatio + \"px\";"
 	      "}"
 
               "const pixels = new Uint8ClampedArray(Module.HEAPU8.buffer, Module['shm'].fds[request.shm_fd-0x7f000000].mem, Module['shm'].fds[request.shm_fd-0x7f000000].len);"
@@ -3330,8 +3330,8 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
     const char * fun =
 
-	"const w = window.devicePixelRatio*window.parent.innerWidth;" // window.innerWidth return 0
-	"const h = window.devicePixelRatio*window.parent.innerHeight;"
+	"const w = window.devicePixelRatio * window.parent.innerWidth;" // window.innerWidth return 0
+	"const h = window.devicePixelRatio * window.parent.innerHeight;"
 
 	"Module.HEAPU8[$0] =  w & 0xff;"
 	"Module.HEAPU8[$0+1] = (w >> 8) & 0xff;"
@@ -3348,11 +3348,11 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 	"canvas.width = w;"
         "canvas.height = h;"
 
-        "canvas.style.width = w / window.devicePixelRatio + \"px\";"
-        "canvas.style.height = h / window.devicePixelRatio + \"px\";"
+        "canvas.style.width = w/window.devicePixelRatio + \"px\";"
+        "canvas.style.height = h/window.devicePixelRatio + \"px\";"
 
         "if (canvas.parentElement) {"
-	    "canvas.parentElement.style.width = w / window.devicePixelRatio + \"px\";"
+	    "canvas.parentElement.style.width = w/window.devicePixelRatio + \"px\";"
         "}";
 
     /*}, &width, &height);*/
@@ -3392,8 +3392,8 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
     const char * fun =
 
-	"const w = window.devicePixelRatio*window.parent.innerWidth;" // window.innerWidth return 0
-	"const h = window.devicePixelRatio*window.parent.innerHeight;"
+	"const w = window.devicePixelRatio * window.parent.innerWidth;" // window.innerWidth return 0
+	"const h = window.devicePixelRatio * window.parent.innerHeight;"
 
 	"Module.HEAPU8[$0] =  w & 0xff;"
 	"Module.HEAPU8[$0+1] = (w >> 8) & 0xff;"
@@ -3410,11 +3410,11 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 	"canvas.width = w;"
         "canvas.height = h;"
 
-        "canvas.style.width = w / window.devicePixelRatio + \"px\";"
-        "canvas.style.height = h / window.devicePixelRatio + \"px\";"
+        "canvas.style.width = w/window.devicePixelRatio + \"px\";"
+        "canvas.style.height = h/window.devicePixelRatio + \"px\";"
 
         "if (canvas.parentElement) {"
-	    "canvas.parentElement.style.width = w / window.devicePixelRatio + \"px\";"
+	    "canvas.parentElement.style.width = w/window.devicePixelRatio + \"px\";"
             "canvas.parentElement.style.left = '0px';"
             "canvas.parentElement.style.top = '0px';"
 
@@ -3468,7 +3468,7 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
     }
     else if (strcmp(proxy->interface->name, "wl_output") == 0) {
 
-      int32_t physical_width, physical_height, width, height;
+      int32_t physical_width, physical_height, width, height, scale;
 
       /*EM_ASM({*/
 
@@ -3477,8 +3477,10 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
 	  "const pw = Math.floor((25.4*window.parent.innerWidth)/96);"
 	  "const ph = Math.floor((25.4*window.parent.innerHeight)/96);"
 
-	  "const w = window.devicePixelRatio*window.parent.innerWidth;" // window.innerWidth return 0
-	  "const h = window.devicePixelRatio*window.parent.innerHeight;"
+	  "const scale = window.devicePixelRatio;"
+
+	  "const w = scale * window.parent.innerWidth;" // window.innerWidth return 0
+	  "const h = scale * window.parent.innerHeight;"
 
 	  "Module.HEAPU8[$0] =  pw & 0xff;"
 	  "Module.HEAPU8[$0+1] = (pw >> 8) & 0xff;"
@@ -3500,26 +3502,32 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
 	  "Module.HEAPU8[$3+2] = (h >> 16) & 0xff;"
 	  "Module.HEAPU8[$3+3] = (h >> 24) & 0xff;";
 
+          "Module.HEAPU8[$4] =  scale & 0xff;"
+	  "Module.HEAPU8[$4+1] = (scale >> 8) & 0xff;"
+	  "Module.HEAPU8[$4+2] = (scale >> 16) & 0xff;"
+	  "Module.HEAPU8[$4+3] = (scale >> 24) & 0xff;";
+
 	  /*}, &physical_width, &physical_height, &width, &height);*/
 
 	  static int wl_output_handle = -1;
 
-    if (wl_output_handle < 0)
-      wl_output_handle = emscripten_load_fun(fun, "vpppp");
+      if (wl_output_handle < 0)
+        wl_output_handle = emscripten_load_fun(fun, "vppppp");
   
-    emscripten_run_fun(wl_output_handle, &physical_width, &physical_height, &width, &height);
+      emscripten_run_fun(wl_output_handle, &physical_width, &physical_height, &width, &height, &scale);
 
       emscripten_log(EM_LOG_CONSOLE, "wl_output: %d %d %d %d", physical_width, physical_height, width, height);
 
       send_event(proxy, "geometry", 0, 0, physical_width, physical_height, 0, "", "", 0);
       send_event(proxy, "mode", 0, width, height, 60);
+      send_event(proxy, "scale", scale);
       send_event(proxy, "done");
     }
     else if (strcmp(proxy->interface->name, "xdg_toplevel") == 0) {
 
       int width, height;
       
-      /*EM_ASM({
+      /*EM_ASM({*
 
 	  //TODOO: Fix width, height
 	  const w = window.devicePixelRatio*window.parent.innerWidth; // window.innerWidth return 0
@@ -3535,9 +3543,9 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
 	  Module.HEAPU8[$1+2] = (h >> 16) & 0xff;
 	  Module.HEAPU8[$1+3] = (h >> 24) & 0xff;
 
-	}, &width, &height);
+	  /}, &width, &height);*/
 
-      width = (4*width/5);
+	/*width = (4*width/5);
       height = (4*height/5);*/
 
       struct wl_array * states;
@@ -4598,6 +4606,8 @@ wl_egl_window_create(struct wl_surface *surface,
   wl_egl_window.width = width;
   wl_egl_window.height = height;*/
 
+  emscripten_log(EM_LOG_CONSOLE, "--> wl_egl_window_create: w=%d h=%d", width, height);
+
   /*EM_ASM({*/
 
       const char * fun = 
@@ -4610,11 +4620,11 @@ wl_egl_window_create(struct wl_surface *surface,
       "canvas.width = $1;"
       "canvas.height = $2;"
 
-      "canvas.style.width = $1 / window.devicePixelRatio + \"px\";"
-      "canvas.style.height = $2 / window.devicePixelRatio + \"px\";"
+      "canvas.style.width = $1/window.devicePixelRatio + \"px\";"
+      "canvas.style.height = $2/window.devicePixelRatio + \"px\";"
 
       "if (canvas.parentElement)"
-	"canvas.parentElement.style.width = $1 / window.devicePixelRatio + \"px\";";
+	"canvas.parentElement.style.width = $1/window.devicePixelRatio + \"px\";";
 
       /*}, surface->id, width, height);*/
 
@@ -4652,14 +4662,14 @@ wl_egl_window_resize(struct wl_egl_window *egl_window,
     "canvas.width = w;"
     "canvas.height = h;"
 
-    "canvas.style.width = w / window.devicePixelRatio + \"px\";"
-    "canvas.style.height = h / window.devicePixelRatio + \"px\";"
+    "canvas.style.width = w/window.devicePixelRatio + \"px\";"
+    "canvas.style.height = h/window.devicePixelRatio + \"px\";"
 
     "if (canvas.parentElement) {"
-      "canvas.parentElement.style.width = w / window.devicePixelRatio + \"px\";"
+      "canvas.parentElement.style.width = w/window.devicePixelRatio + \"px\";"
 
-      "const fw = window.devicePixelRatio*window.parent.innerWidth;"
-      "const fh = window.devicePixelRatio*window.parent.innerHeight;"
+      "const fw = window.devicePixelRatio * window.parent.innerWidth;"
+      "const fh = window.devicePixelRatio * window.parent.innerHeight;"
 
       "if ( (w != fw) || (h != fh) ) {"
         // Show decoration
