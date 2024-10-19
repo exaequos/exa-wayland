@@ -2806,7 +2806,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 	//"console.log(\"Decoration mouse down: \"+event.target.id);"
 
 		  "if (event.target.id == 'close') {"
-
+	
 		    "Module['wayland'].events.push({"
 
 		      "'type': 5," // close button pressed
@@ -2824,11 +2824,74 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
 		    "event.stopPropagation();"
 		  "}"
+	          "else if (event.target.id == 'max') {"
+
+	            "let canvas = Module['surfaces'][$0-1];"
+
+	            "let w;"
+	            "let h;"
+
+	            "if (!canvas.maximized) {"
+
+	              "canvas.maximized = 1;"
+
+	              "canvas.old_width = canvas.width;"
+	              "canvas.old_height = canvas.height;"
+
+	              "w = window.devicePixelRatio * window.parent.innerWidth;" // window.innerWidth return 0
+	              "h = window.devicePixelRatio * window.parent.innerHeight;"
+	            
+	              "if (canvas.parentElement && canvas.parentElement.firstChild) {"
+
+	                //Remove decoration height
+	                "  h -= window.devicePixelRatio * canvas.parentElement.firstChild.offsetHeight;"
+	              "}"
+	            "}"
+	            "else {"
+
+	              "canvas.maximized = 0;"
+
+	              "w = canvas.old_width;"
+	              "h = canvas.old_height;"
+	            "}"
+
+	            "canvas.width = w;"
+                    "canvas.height = h;"
+
+                    "canvas.style.width = w/window.devicePixelRatio + \"px\";"
+                    "canvas.style.height = h/window.devicePixelRatio + \"px\";"
+
+                    "if (canvas.parentElement) {"
+	                "canvas.parentElement.style.width = w/window.devicePixelRatio + \"px\";"
+	                "canvas.parentElement.style.left = '0px';"
+	                "canvas.parentElement.style.top = '0px';"
+	                
+	             "}"
+
+	             "Module['wayland'].events.push({"
+
+		      "'type': 16," // window resized
+		      "'surface_id': $0,"
+		      "'width': w,"
+	              "'height': h"
+		      "});"
+
+		    "setTimeout(() => {"
+
+			"if ( (Module['fd_table'][0x7e000000].notif_select) && (Module['wayland'].events.length > 0) ) {"
+
+			  "Module['fd_table'][0x7e000000].notif_select(0x7e000000, 0);"
+			"}"
+		    
+			"}, 0);"
+
+		    "event.stopPropagation();"
+		  "}"
 		  "else if (event.target.id == 'min') {"
 
 		    "let m = new Object();"
 	
-		    "m.type = 12;" // minimise
+		    "m.type = 12;" // minimize
 		    "m.pid = Module.getpid() & 0x0000ffff;"
 		    
 		    "window.parent.postMessage(m);"
@@ -3316,7 +3379,7 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
     ((struct wl_data_device *) proxy)->source = source;
 
     emscripten_log(EM_LOG_CONSOLE, "WL_DATA_DEVICE_SET_SELECTION: %p", source);
-
+    
     send_event(source, "send", "text/plain", 0x7e000001); // reserved fd for wayland virtual pipe
   }
   else if ( (strcmp(proxy->interface->name, "xdg_toplevel") == 0) &&
@@ -3330,10 +3393,18 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
     const char * fun =
 
-	"const w = window.devicePixelRatio * window.parent.innerWidth;" // window.innerWidth return 0
-	"const h = window.devicePixelRatio * window.parent.innerHeight;"
+	"let w = window.devicePixelRatio * window.parent.innerWidth;" // window.innerWidth return 0
+	"let h = window.devicePixelRatio * window.parent.innerHeight;"
 
-	"Module.HEAPU8[$0] =  w & 0xff;"
+        "let canvas = Module['surfaces'][$2-1];"
+
+        "if (canvas.parentElement && canvas.parentElement.firstChild) {"
+
+        //Remove decoration height
+        "  h -= window.devicePixelRatio * canvas.parentElement.firstChild.offsetHeight;"
+        "}"
+
+        "Module.HEAPU8[$0] =  w & 0xff;"
 	"Module.HEAPU8[$0+1] = (w >> 8) & 0xff;"
 	"Module.HEAPU8[$0+2] = (w >> 16) & 0xff;"
 	"Module.HEAPU8[$0+3] = (w >> 24) & 0xff;"
@@ -3342,8 +3413,6 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 	"Module.HEAPU8[$1+1] = (h >> 8) & 0xff;"
 	"Module.HEAPU8[$1+2] = (h >> 16) & 0xff;"
         "Module.HEAPU8[$1+3] = (h >> 24) & 0xff;"
-
-        "let canvas = Module['surfaces'][$2-1];"
 
 	"canvas.width = w;"
         "canvas.height = h;"
@@ -4015,6 +4084,24 @@ int wl_display_dispatch(struct wl_display * display) {
             "stringToUTF8Array(event.data, Module.HEAPU8, ptr, len);"
     
 	  "}"
+          "else if (event.type == 16) {" // window resized
+
+	    "Module.HEAPU8[$0] =  event.surface_id & 0xff;"
+	    "Module.HEAPU8[$0+1] = (event.surface_id >> 8) & 0xff;"
+	    "Module.HEAPU8[$0+2] = (event.surface_id >> 16) & 0xff;"
+	    "Module.HEAPU8[$0+3] = (event.surface_id >> 24) & 0xff;"
+
+            "Module.HEAPU8[$1] =  event.width & 0xff;"
+	    "Module.HEAPU8[$1+1] = (event.width >> 8) & 0xff;"
+	    "Module.HEAPU8[$1+2] = (event.width >> 16) & 0xff;"
+	    "Module.HEAPU8[$1+3] = (event.width >> 24) & 0xff;"
+
+            "Module.HEAPU8[$2] =  event.height & 0xff;"
+	    "Module.HEAPU8[$2+1] = (event.height >> 8) & 0xff;"
+	    "Module.HEAPU8[$2+2] = (event.height >> 16) & 0xff;"
+	    "Module.HEAPU8[$2+3] = (event.height >> 24) & 0xff;"
+    
+	  "}"
 	  
 	  "return event.type;"
 	"}"
@@ -4200,6 +4287,50 @@ int wl_display_dispatch(struct wl_display * display) {
 
       write(arg1, (const char *)arg2, strlen((const char *)arg2));
       close(arg1);
+    }
+    else if (event_type == 16) { // window resized
+
+      for (int i = 0; i < NB_SURFACE_MAX; ++i) {
+
+	if (surfaces[i].id == arg1) {
+	  
+	  for (int j = 0; j < NB_SURFACE_MAX; ++j) {
+
+	    if (xdg_surfaces[j].wl_surface == &surfaces[i]) {
+
+	      for (int k = 0; k < NB_SURFACE_MAX; ++k) {
+
+		if (xdg_toplevels[k].xdg_surface == &xdg_surfaces[j]) {
+
+		  struct wl_array * states;
+
+		  states = (struct wl_array *)malloc(sizeof(struct wl_array));
+
+		  states->size = 1 * sizeof(uint32_t);
+
+		  states->data = malloc(states->size);
+
+		  ((uint32_t *)(states->data))[0] = XDG_TOPLEVEL_STATE_RESIZING;
+
+		  emscripten_log(EM_LOG_CONSOLE, "Resizing window: id=%d w=%d h=%d", arg1, arg2, arg3);
+
+		  send_event(&xdg_toplevels[k], "configure", arg2, arg3, states);
+
+		  free(states);
+
+		  // TODO event not received immediately
+		  send_event(xdg_toplevels[k].xdg_surface, "configure", 0);
+		  break;
+		}
+	      }
+	      
+	      break;
+	    }
+	  }
+
+	  break;
+	}
+      }
     }
     else if (event_type == 0) {
 
@@ -4748,4 +4879,6 @@ wl_egl_window_resize(struct wl_egl_window *egl_window,
       }
     }
   }
+
+  free(states);
 }
