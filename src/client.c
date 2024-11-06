@@ -167,8 +167,15 @@ struct xkb_state {
   uint32_t locked_mods;
 };
 
+struct xkb_compose_table {
+  
+};
+
 struct xkb_compose_state {
   
+  int status;
+  int circumflex;
+  xkb_keysym_t keysym;
 };
 
 struct wl_cursor_theme {
@@ -241,6 +248,7 @@ static struct wl_callback frame_callbacks[NB_CALLBACK_MAX];
 
 static struct xkb_keymap keymap;
 
+static struct xkb_compose_table kbd_compose_table;
 static struct xkb_state kbd_state;
 static struct xkb_compose_state kbd_compose_state;
 
@@ -370,7 +378,9 @@ struct args_sh {
 
 void send_event(struct wl_proxy * proxy, const char * name, ...) {
 
-  printf("send_event: %s\n", name);
+  //emscripten_log(EM_LOG_CONSOLE, "send_event: %s (%d %d)\n", name, display.head, display.tail);
+
+  
 
   display.event_queue[display.head].proxy = proxy;
   strcpy(display.event_queue[display.head].name, name);
@@ -606,7 +616,7 @@ void send_event(struct wl_proxy * proxy, const char * name, ...) {
       
       "setTimeout(() => {"
 
-	  "if ( (Module['fd_table'][0x7e000000].notif_select) && (Module['wayland'].queueNotEmpty) ) {"
+    "if ( (Module['fd_table'][0x7e000000].notif_select) /*&& (Module['wayland'].queueNotEmpty)*/ ) {"
 
 	    // TODO check rw
 		      
@@ -888,8 +898,10 @@ wl_proxy_get_tag(struct wl_proxy *proxy) {
 
 int wl_display_roundtrip(struct wl_display * display) {
 
-  while (display->head != display->tail) {
+  //emscripten_log(EM_LOG_CONSOLE, "--> wl_display_roundtrip %d %d", display->head, display->tail);
 
+  while (display->head != display->tail) {
+    
     struct wl_interface * interface = display->event_queue[display->tail].proxy->interface;
 
     if (interface) {
@@ -1106,8 +1118,6 @@ int wl_display_roundtrip(struct wl_display * display) {
 
     display->tail = (display->tail +1) % EVENT_QUEUE_SIZE;
   }
-
-  
 
   /*EM_ASM({*/
 
@@ -2076,6 +2086,8 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 	  "});"
 	
 	"newCanvas.addEventListener(\"mousedown\", (event) => {"
+
+            "console.log(event);"
 
 	    "if (Module.selected_toplevel)"
 	      "return;"
@@ -3422,6 +3434,9 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
 
         "if (canvas.parentElement) {"
 	    "canvas.parentElement.style.width = w/window.devicePixelRatio + \"px\";"
+
+            "canvas.parentElement.style.left = '0px';"
+	    "canvas.parentElement.style.top = '0px';"
         "}";
 
     /*}, &width, &height);*/
@@ -3487,8 +3502,12 @@ wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
             "canvas.parentElement.style.left = '0px';"
             "canvas.parentElement.style.top = '0px';"
 
+      //"console.log(\"Fullscreen: hide decoration\");"
+      //"console.log(canvas.parentElement);"
+      //"console.log(canvas.parentElement.firstChild);"
+            
             // Hide decoration
-            "canvas.parentElement.firstChild.style.display = 'none';"
+            "canvas.parentElement.firstChild.style.display = \"none\";"
         "}";
 
     /*}, &width, &height);*/
@@ -3703,13 +3722,15 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
 	      "return 0xff50;"
 	    "else if (event.key === \"End\")"
 	      "return 0xff57;"
+	    "else if ( (event.key === \"^\") && (event.keyCode == 0x20))"
+	      "return 0x20;"
+	    "else if ( (event.keyCode >= 112) && (event.keyCode <= 123) )" // F1-F12
+	      "return event.keyCode+0xffbe-112;"
+	    "else if ((event.key === \"Dead\") && (event.code === \"BracketLeft\"))"
+	      "return 0xff5e;"
 	    "else if (event.key.length >= 3) {"
 	      "return -1;"
 	    "}"
-	    "else if ( (event.keyCode >= 112) && (event.keyCode <= 123) ) {" // F1-F12
-	      "return event.keyCode+0xffbe-112;"
-	    "}"
-	    
 
 	    "let utf32 = event.key.codePointAt(0);"
 
@@ -3725,7 +3746,7 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
 				      "event.preventDefault();" // Cancel the native event
 				      "event.stopPropagation();" // Don't bubble/capture the event any further
 
-				      //console.log(event);
+				      "console.log(event);"
 
 				      "if (event.repeat)"
 					"return;"
@@ -3734,9 +3755,65 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
 
 				      "const scancode = Module.computeKey(event);"
 
+	                              "console.log(\"scancode: \", scancode);"
+
+	                              // Workaround for AltGr on Windows where Ctrl key is received
+	                              "if (event.key == \"AltGraph\") {"
+
+	                                  "Module.AltGr = true;"
+
+	                                  "if (Module.mods & 4) {"  // ctrl key has been received
+
+	                                     "Module.no_ctrl = true;"
+
+	                                     "Module['wayland'].events.push({"
+
+					       "'type': 4," // keyup
+					       "'key': 0xffe3-8," // !! to simulate keyup ctrl key
+					       "'location': event.location,"
+					       "'timestamp': timestamp"
+					       "});"
+	
+                                             "let mods = Module.computeMods(event.shiftKey,event.altKey, false);"
+
+				             "if (mods != Module.mods) {"
+
+					       "Module.mods = mods;"
+
+					       "Module['wayland'].events.push({"
+					    
+					           "'type': 6," // mods
+					           "'mods': mods"
+					           "});"
+				             "}"
+
+	                                     "setTimeout(() => {"
+
+					       "if ( (Module['fd_table'][0x7e000000].notif_select) && (Module['wayland'].events.length > 0) ) {"
+
+					        // TODO check rw
+		      
+					          "Module['fd_table'][0x7e000000].notif_select(0x7e000000, 0);"
+					        "}"
+		    
+					      "}, 0);"
+	                                     
+	                                  "}"
+	                              "}"
+	                              "else if (event.key == \"Control\") {"
+
+	                                  "Module.no_ctrl = false;"
+	                              "}"
+
 				      "if (scancode < 0)"
 					"return;"
 
+	                              "if (Module.AltGr) {"
+
+	                                  "Module.scancode = scancode;"
+	                                  "Module.keyCode = event.keyCode;"
+	                              "}"
+	
 				      "Module['wayland'].events.push({"
 
 					"'type': 3," // keydown
@@ -3745,7 +3822,7 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
 					"'timestamp': timestamp"
 					"});"
 
-				      "let mods = Module.computeMods(event.shiftKey,event.altKey, event.ctrlKey);"
+				      "let mods = Module.computeMods(event.shiftKey,event.altKey, event.ctrlKey && !Module.no_ctrl);"
 
 				      "if (mods != Module.mods) {"
 
@@ -3774,13 +3851,19 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
 	  "document.addEventListener(\"keyup\","
 				    "(event) => {"
 
-				      //console.log(event);
-
 				      "event.preventDefault();" // Cancel the native event
 				      "event.stopPropagation();" // Don't bubble/capture the event any further
 
-				      "if (event.repeat)"
+				      "console.log(event);"
+
+	                              "if (event.repeat)"
 					"return;"
+
+	                              "if (event.key == \"AltGr\") {"
+
+					  "Module.AltGr = true;"
+	                                  "Module.no_ctrl = false;"
+	                              "}"
 
 				      "let mods = Module.computeMods(event.shiftKey,event.altKey, event.ctrlKey);"
 
@@ -3797,10 +3880,16 @@ int wl_proxy_add_listener(struct wl_proxy * proxy,
 
 				      "const timestamp = new Date().getTime();"
 
-				      "const scancode = Module.computeKey(event);"
+				      "let scancode = Module.computeKey(event);"
 
-				      "if (scancode < 0)"
+	                              "if (scancode < 0)"
 					"return;"
+
+	                              // Workaround to be sure scancode is same for key down and key up
+	
+	                              "if (Module.AltGr && (Module.keyCode == event.keyCode)) {"
+                                          "scancode = Module.scancode;"
+	                              "}"
 
 				      "Module['wayland'].events.push({"
 
@@ -4188,8 +4277,6 @@ int wl_display_dispatch(struct wl_display * display) {
 	  break;
 	}
       }
-
-      //send_event(&keyboard, "key", keyboard.serial, arg2, arg1, WL_KEYBOARD_KEY_STATE_RELEASED);
     }
     else if (event_type == 6) { // mods
 
@@ -4353,7 +4440,6 @@ wl_display_dispatch_pending(struct wl_display *display) {
 
 int
 wl_display_prepare_read(struct wl_display *display) {
-
   
   /*int ret = EM_ASM_INT({*/
 
@@ -4374,6 +4460,11 @@ wl_display_prepare_read(struct wl_display *display) {
       wl_display_prepare_read_handle = emscripten_load_fun(fun, "i");
   
     int ret = emscripten_run_fun(wl_display_prepare_read_handle);
+
+    if (display->head != display->tail)
+      ret = 1;
+
+    //emscripten_log(EM_LOG_CONSOLE, "<-- wl_display_prepare_read %d\n", ret);
 	  
   return ret;
 }
@@ -4454,7 +4545,7 @@ int
 wl_display_flush(struct wl_display *display)
 {
 
-  printf("wl_display_flush: head=%d tail=%d\n", display->head, display->tail);
+  //emscripten_log(EM_LOG_CONSOLE, "wl_display_flush: head=%d tail=%d\n", display->head, display->tail);
 
   return 0;
 }
@@ -4474,25 +4565,61 @@ enum xkb_compose_feed_result
 xkb_compose_state_feed(struct xkb_compose_state *state,
                        xkb_keysym_t keysym) {
 
-  return XKB_COMPOSE_FEED_IGNORED;
+  emscripten_log(EM_LOG_CONSOLE, "xkb_compose_state_feed: %x status=%d", keysym, state->status);
+  
+  if (keysym == 0xff5e) {
+    state->circumflex = 1;
+    state->keysym = 0;
+    state->status = XKB_COMPOSE_COMPOSING;
+  }
+  else {
+
+    if ( (state->circumflex == 1) && (keysym == 0x20) ) {
+
+      state->keysym = 0xff5e;
+    }
+    else {
+      
+      state->keysym = keysym;
+    }
+    
+    state->circumflex = 0;
+    state->status = XKB_COMPOSE_COMPOSED;
+  }
+
+  emscripten_log(EM_LOG_CONSOLE, "xkb_compose_state_feed: new status=%d", state->status);
+  
+  return XKB_COMPOSE_FEED_ACCEPTED;
 }
 
 xkb_keysym_t
 xkb_compose_state_get_one_sym(struct xkb_compose_state *state) {
 
-  return 0;
+  emscripten_log(EM_LOG_CONSOLE, "xkb_compose_state_get_one_sym: %x", state->keysym);
+
+  xkb_keysym_t keysym = state->keysym;
+
+  state->keysym = 0;
+  
+  return keysym;
 }
 
 enum xkb_compose_status
 xkb_compose_state_get_status(struct xkb_compose_state *state) {
 
-  return XKB_COMPOSE_NOTHING;
+  emscripten_log(EM_LOG_CONSOLE, "xkb_compose_state_get_status: %x", state->status);
+  
+  return state->status;
 }
 
 struct xkb_compose_state *
 xkb_compose_state_new(struct xkb_compose_table *table,
                       enum xkb_compose_state_flags flags) {
 
+  kbd_compose_state.status = XKB_COMPOSE_NOTHING;
+  kbd_compose_state.circumflex = 0;
+  kbd_compose_state.keysym = XKB_KEY_NoSymbol;
+  
   return &kbd_compose_state;
 }
 
@@ -4506,7 +4633,7 @@ xkb_compose_table_new_from_locale(struct xkb_context *context,
                                   const char *locale,
                                   enum xkb_compose_compile_flags flags) {
 
-  return NULL;
+  return &kbd_compose_table;
 }
 
 void
@@ -4587,6 +4714,8 @@ xkb_keysym_to_utf32(xkb_keysym_t keysym) {
     return 0xff1b;
   else if (keysym == 0xffff)
     return 0x7f;
+  else if (keysym == 0xff5e)
+    return 0x5e;
   else if ( (keysym >= 0x20) && (keysym <= 0x7f) )
     return keysym;
 
@@ -4620,6 +4749,8 @@ xkb_keysym_to_lower(xkb_keysym_t ks) {
 xkb_keysym_t
 xkb_state_key_get_one_sym(struct xkb_state *state, xkb_keycode_t key) {
 
+  emscripten_log(EM_LOG_CONSOLE, "xkb_state_key_get_one_sym: %x", key);
+  
   return key;
 }
 
@@ -4801,8 +4932,10 @@ wl_egl_window_resize(struct wl_egl_window *egl_window,
 
       "const fw = window.devicePixelRatio * window.parent.innerWidth;"
       "const fh = window.devicePixelRatio * window.parent.innerHeight;"
+      
+    //"console.log(\"js resize:\" + w + \",\" + h + \",\" + fw + \",\" + fh);"
 
-      "if ( (w != fw) || (h != fh) ) {"
+      "if ( (w < (fw-2)) || (h < (fh-2)) ) {"
         // Show decoration
         "canvas.parentElement.firstChild.style.display = 'block';"
       "}"
